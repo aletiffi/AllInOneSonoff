@@ -1,0 +1,6 @@
+  - platform: mqtt
+    schema: json
+    name: Sonoff Test
+    state_topic: "stat/test/pow"
+    command_topic: "cmnd/test/pow"
+    qos: 0

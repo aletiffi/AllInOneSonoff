@@ -1,0 +1,5 @@
+ReadInput	KEYWORD1
+State	KEYWORD2
+isActive	KEYWORD2
+getErrors	KEYWORD2
+setErrors	KEYWORD2
