@@ -1,5 +1,6 @@
 #include "OtaLogic.h"
 #include <string.h>
+#include <strings.h>
 #include <stdlib.h>
 #include <ArduinoJson.h>
 
@@ -36,6 +37,17 @@ bool ota_is_https(const char* url) {
 
 bool ota_is_valid_url(const char* url) {
   return ota_is_https(url) || (url && strncmp(url, "http://", 7) == 0 && url[7] != '\0');
+}
+
+bool ota_is_disabled(const char* setting) {
+  return setting && strcasecmp(setting, "off") == 0;
+}
+
+const char* ota_effective_url(const char* setting, const char* defaultUrl) {
+  if (ota_is_disabled(setting)) {
+    return NULL;
+  }
+  return ota_is_valid_url(setting) ? setting : defaultUrl;
 }
 
 static bool CopyString(const char* src, size_t len, char* out, size_t outSize) {

@@ -45,7 +45,8 @@ static void SendInfo() {
   doc["hostname"] = Hostname.Val;
   doc["version"] = FW_VERSION;
   doc["state"] = IsOn() ? ON_PAYLOAD : OFF_PAYLOAD;
-  doc["ota_url"] = OtaUrl.Val;
+  doc["ota_url"] = Ota_ManifestUrl();
+  doc["ota_url_default"] = Ota_ManifestUrl() == OTA_DEFAULT_URL;
   doc["ota_status"] = Ota_Status();
   doc["ota_signed"] = Ota_IsSigningEnabled();
   doc["unique_id"] = Mqtt_UniqueId();

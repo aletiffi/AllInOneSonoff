@@ -1,28 +1,34 @@
 name: Release
 
-# Started by hand: GitHub > Actions > Release > Run workflow.
-# 1. runs the unit tests
-# 2. increments FW_VERSION in include/Config.h (the chosen part)
-# 3. builds the firmware and signs the OTA image with the OTA_PRIVATE_KEY secret
-# 4. commits the new version, creates the tag v<version> and pushes them
-# 5. creates the GitHub release with:
-#      AllInOneSonoff_v<version>.bin          firmware for the serial flash
-#      AllInOneSonoff_v<version>.ota.bin.gz   signed OTA image
-#      manifest.json                          OTA manifest for the devices
-#    The url of the latest manifest never changes:
-#      https://github.com/<owner>/<repo>/releases/latest/download/manifest.json
+# Creates a GitHub release:
+#   - automatically when a pull request is merged into main
+#     (PR labels: release:major / release:minor / release:patch choose the part to
+#      increment, default the last number "build"; no-release skips the release)
+#   - by hand: GitHub > Actions > Release > Run workflow
 #
-# Required secret (Settings > Secrets and variables > Actions > New repository secret):
+# Steps: unit tests, next version from the git tags (scripts/next_version.py),
+# build with that version, OTA image signed with the OTA_PRIVATE_KEY secret,
+# tag vX + release with:
+#     AllInOneSonoff_v<version>.bin          firmware for the serial flash
+#     AllInOneSonoff_v<version>.ota.bin.gz   signed OTA image
+#     manifest.json                          OTA manifest for the devices
+# Nothing is committed to main: the version lives in the tag only.
+# The devices read https://github.com/<owner>/<repo>/releases/latest/download/manifest.json
+#
+# Required secret (Settings > Secrets and variables > Actions > Repository secrets):
 #   OTA_PRIVATE_KEY = content of keys/private.key
 
 on:
+  pull_request:
+    types: [closed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       bump:
         description: "Version part to increment (major.minor.patch.build)"
         type: choice
-        options: [minor, patch, build, major]
-        default: minor
+        options: [build, patch, minor, major]
+        default: build
 
 permissions:
   contents: write
@@ -34,9 +40,35 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true &&
+       !contains(github.event.pull_request.labels.*.name, 'no-release'))
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The merged code (merge commit of the PR, or main for a manual run)
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Version part to increment
+        id: bump
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_BUMP: ${{ inputs.bump }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          part=build
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            part="$INPUT_BUMP"
+          else
+            for p in major minor patch; do
+              if echo "$LABELS" | grep -q "\"release:$p\""; then part="$p"; break; fi
+            done
+          fi
+          echo "part=$part" >> "$GITHUB_OUTPUT"
+          echo "Increment: $part"
 
       - uses: actions/setup-python@v5
         with:
@@ -53,26 +85,34 @@ jobs:
         run: pip install platformio
 
       - name: Unit tests (PC)
-        run: pio test -e native
+        run: |
+          pio test -e native
+          python3 -m unittest discover -s scripts -p 'test_*.py'
+
+      - name: Next version
+        id: version
+        run: python3 scripts/next_version.py "${{ steps.bump.outputs.part }}" >> "$GITHUB_OUTPUT"
 
       - name: Signing key
         env:
           OTA_PRIVATE_KEY: ${{ secrets.OTA_PRIVATE_KEY }}
         run: |
           if [ -z "$OTA_PRIVATE_KEY" ]; then
-            echo "::error::Secret OTA_PRIVATE_KEY missing: add the content of keys/private.key in Settings > Secrets and variables > Actions"
+            echo "::error::Secret OTA_PRIVATE_KEY missing: add the content of keys/private.key in Settings > Secrets and variables > Actions > Repository secrets"
             exit 1
           fi
           umask 077
           printf '%s\n' "$OTA_PRIVATE_KEY" > keys/private.key
 
-      - name: Increment version
-        id: version
-        run: python3 scripts/bump_version.py "${{ inputs.bump }}" >> "$GITHUB_OUTPUT"
-
-      # signing.py checks that the secret matches keys/public.key, then signs the OTA image
+      # signing.py builds with FW_VERSION, checks the key against keys/public.key and signs
       - name: Build firmware
+        env:
+          FW_VERSION: ${{ steps.version.outputs.version }}
         run: pio run -e sonoff_sv
+
+      - name: Remove signing key
+        if: always()
+        run: rm -f keys/private.key
 
       - name: Release files
         env:
@@ -96,32 +136,22 @@ jobs:
             echo "| \`${name}.ota.bin.gz\` | OTA update (gzip + signed) |"
             echo "| \`manifest.json\` | OTA manifest |"
             echo
-            echo "OTA url for the devices (always the latest release):"
-            echo "\`https://github.com/${REPO}/releases/latest/download/manifest.json\`"
+            echo "The devices with an empty *Firmware update url* install this release by themselves within an hour."
             echo
             echo "SHA256:"
             echo '```'
-            (cd release && sha256sum ./*.bin ./*.gz manifest.json | sed "s#./##")
+            (cd release && sha256sum ./*.bin ./*.gz manifest.json | sed "s#\./##")
             echo '```'
           } > release/notes.md
-
-      - name: Commit, tag and push
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add include/Config.h
-          git commit -m "Release v${VERSION}"
-          git tag -a "v${VERSION}" -m "Release v${VERSION}"
-          git push origin "HEAD:${GITHUB_REF_NAME}" "v${VERSION}"
 
       - name: GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
+          TARGET: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
         run: |
           gh release create "v${VERSION}" \
+            --target "$TARGET" \
             --title "AllInOneSonoff v${VERSION}" \
             --notes-file release/notes.md \
             --generate-notes \
@@ -130,12 +160,9 @@ jobs:
             release/AllInOneSonoff_v${VERSION}.ota.bin.gz \
             release/manifest.json
 
-      - name: Remove signing key
-        if: always()
-        run: rm -f keys/private.key
-
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: release-${{ steps.version.outputs.version }}
+          name: release-${{ steps.version.outputs.version || 'failed' }}
           path: release/
+          if-no-files-found: ignore

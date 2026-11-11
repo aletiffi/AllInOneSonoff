@@ -4,7 +4,11 @@
 //----------------------------------------------------------------------------
 // Firmware
 //----------------------------------------------------------------------------
+// Releases: set by the GitHub pipeline from the git tags (FW_VERSION environment variable,
+// see scripts/signing.py). This value is used for local builds and as minimum version.
+#ifndef FW_VERSION
 #define FW_VERSION                "45.4.0.0"
+#endif
 #define DEFAULT_AP_NAME           "SonoffAllInOne"
 //----------------------------------------------------------------------------
 // Sonoff r1 pins
@@ -40,6 +44,11 @@
 #define STATE_EEPROM_SIZE         26
 #define MAX_LENGTH_SETTING        20
 #define MAX_LENGTH_URL            150
+//----------------------------------------------------------------------------
+// Firmware updates: used when the "Firmware update url" setting is empty.
+// Always points to the manifest of the latest GitHub release.
+//----------------------------------------------------------------------------
+#define OTA_DEFAULT_URL           "https://github.com/aletiffi/AllInOneSonoff/releases/latest/download/manifest.json"
 //----------------------------------------------------------------------------
 // Json messages (payloads and mode names are in lib/AppLogic)
 //----------------------------------------------------------------------------

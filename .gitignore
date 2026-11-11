@@ -11,3 +11,7 @@ keys/private.key
 AllInOneSonoff_v*.bin
 AllInOneSonoff_v*.ota.bin.gz
 release/
+
+# Python bytecode
+__pycache__/
+*.pyc

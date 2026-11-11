@@ -150,10 +150,10 @@ const char webPage[] PROGMEM = R"=====(
             <input type="password" value="" id="MQTT_Password" placeholder="MQTT Password" maxlength="20">
           </p>
           <p>
-            <label for="OTA_URL">Firmware update url (json manifest, "-" to delete)</label>
+            <label for="OTA_URL">Firmware update url (empty = latest GitHub release, "off" = disabled, "-" = back to default)</label>
           </p>
           <p>
-            <input value="" id="OTA_URL" placeholder="https://drive.google.com/file/d/..." maxlength="150">
+            <input value="" id="OTA_URL" placeholder="latest GitHub release" maxlength="150">
           </p>
           <br>
           <p>
@@ -200,9 +200,8 @@ const char webPage[] PROGMEM = R"=====(
               " - id " + info.unique_id + " - command topic " + info.mqtt_command + " - state topic " + info.mqtt_state;
             document.getElementById("ota_status").innerText = "Update: " + info.ota_status +
               (info.ota_signed ? " (signed firmware only)" : " (WARNING: signature check disabled)");
-            if (info.ota_url != "") {
-              document.getElementById("OTA_URL").placeholder = info.ota_url;
-            }
+            document.getElementById("OTA_URL").placeholder = info.ota_url == "" ? "off (updates disabled)" :
+              (info.ota_url_default ? "latest GitHub release (default)" : info.ota_url);
             if (info.mode == "LedStrip") {
               document.getElementById("ledstrip").classList.remove("hidden");
               document.getElementById("colorWell").value = info.color;

@@ -28,6 +28,13 @@ bool ota_is_https(const char* url);
 // Returns false if out is too small
 bool ota_normalize_url(const char* url, char* out, size_t outSize);
 
+// Url of the manifest to use, from the "Firmware update url" setting:
+//   empty or not an http(s) url (e.g. old OTA Drive key)  -> defaultUrl
+//   "off" (any case)                                       -> NULL, updates disabled
+//   anything else                                          -> the setting
+const char* ota_effective_url(const char* setting, const char* defaultUrl);
+bool ota_is_disabled(const char* setting);
+
 // Manifest: {"version": "45.2.0.0", "url": "https://..."}; the url is normalized
 OtaManifestResult ota_parse_manifest(const char* json, char* version, size_t versionSize, char* url, size_t urlSize);
 

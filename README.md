@@ -124,12 +124,12 @@ The first flash must be done by cable. All the following updates can be done ove
 | MQTT Server | for Home Assistant | IP address of the MQTT broker, e.g. `192.168.1.10` (or `192.168.1.10:1883`) |
 | MQTT User / Password | if the broker requires them | User created for MQTT (see [section 7](#7-home-assistant)) |
 | MQTT command/state topic | no | Leave empty: the defaults are `sonoff/<hostname>/set` and `sonoff/<hostname>/state` |
-| Firmware update url | no | Address of the update manifest, see [section 9](#9-firmware-updates-ota) |
+| Firmware update url | no | Leave empty: the Sonoff updates itself from the latest GitHub release. `off` disables the updates. See [section 9](#9-firmware-updates-ota) |
 
 4. Press **Save Settings**. The Sonoff connects to your WiFi. When it's connected, the Sonoff's led stays on.
 5. From now on the page is at `http://<hostname>.local` (e.g. `http://cucina.local`) or at the IP assigned by the router.
 
-Empty fields don't overwrite the saved values: you can change one field only and leave the others empty. To delete the update url, enter `-`. When you change the mode the Sonoff restarts by itself.
+Empty fields don't overwrite the saved values: you can change one field only and leave the others empty. To delete a custom update url (and go back to GitHub), enter `-`. When you change the mode the Sonoff restarts by itself.
 
 <p align="center"><img src="img/Settings.PNG" alt="Settings"/></p>
 
@@ -346,7 +346,15 @@ After the first serial flash, updates arrive over WiFi.
 
 ### 9.1 How it works
 
-In the settings, **Firmware update url** contains the address of a small **manifest** file:
+The Sonoff reads a small **manifest** file. Which one depends on the **Firmware update url** setting:
+
+| Firmware update url | Manifest used |
+|---|---|
+| *empty* (default) | `https://github.com/aletiffi/AllInOneSonoff/releases/latest/download/manifest.json`, the latest GitHub release |
+| an `http(s)://` address | that address (Google Drive, a test manifest, a local server...) |
+| `off` | none: automatic updates disabled |
+
+The manifest looks like this:
 
 ```json
 {
@@ -364,39 +372,39 @@ The **Release** pipeline does everything by itself: tests, version increment, bu
 **One-time setup:**
 1. On GitHub: *Settings > Secrets and variables > Actions > New repository secret*. Name: `OTA_PRIVATE_KEY`, value: the **whole content** of `keys/private.key` (including the `-----BEGIN` / `-----END` lines). GitHub keeps it encrypted and doesn't show it to anyone, not even in the logs.
 2. The repository must be **public**, otherwise the Sonoff can't download the files (private release downloads need a login). The private key is never in the repository, so publishing the code doesn't compromise the updates.
-3. In the settings of every Sonoff, put this in *Firmware update url*:
-   `https://github.com/aletiffi/AllInOneSonoff/releases/latest/download/manifest.json`
-   This address always points to the **latest** release: you set it once and never change it again.
+3. Nothing to do on the Sonoffs: with *Firmware update url* empty they already use the latest GitHub release (the default address is `OTA_DEFAULT_URL` in `include/Config.h`; change it if you use a fork).
 
-**For every update:**
-1. Push your changes to `main`.
-2. On GitHub: *Actions > Release > Run workflow*, choose which part of the version to increment and press *Run workflow*:
+**For every update: open a pull request and merge it.** That's all.
 
-| Choice | Example | When |
+1. Work on a branch (e.g. `feature/new-effect`), push it and open a pull request to `main`. The **CI** runs the tests and the build on the PR: merge only when it's green ✅.
+2. If needed, add a **label** to the PR to choose the version (create the labels once in *Issues > Labels*):
+
+| PR label | Example | When |
 |---|---|---|
-| `minor` (default) | 45.4.0.0 → 45.5.0.0 | New features |
-| `patch` | 45.4.0.0 → 45.4.1.0 | Fixes |
-| `build` | 45.4.0.0 → 45.4.0.1 | Small changes |
-| `major` | 45.4.0.0 → 46.0.0.0 | Big changes |
+| *(none)* | 45.4.0.0 → 45.4.0.1 | Default: small changes and fixes |
+| `release:patch` | 45.4.0.3 → 45.4.1.0 | Fixes |
+| `release:minor` | 45.4.0.3 → 45.5.0.0 | New features |
+| `release:major` | 45.4.0.3 → 46.0.0.0 | Big changes |
+| `no-release` | — | No release (e.g. README only) |
 
-3. The pipeline runs the tests (if they fail, it stops and changes nothing), updates `FW_VERSION`, builds, signs, creates the commit *Release vX* and the tag `vX`, and publishes the release with `.bin`, `.ota.bin.gz` and `manifest.json` (and the SHA256 checksums).
+3. **Merge** the PR. The **Release** pipeline starts by itself: tests (if they fail it stops and publishes nothing), next version from the latest `vX` tag, build with that version, signature, tag `vX` and release with `.bin`, `.ota.bin.gz`, `manifest.json` and SHA256 checksums. The release notes list the merged PRs.
 4. Within an hour the Sonoffs update by themselves (or press *Install* in Home Assistant).
 
-After a release run `git pull`: the pipeline has created a commit with the new version.
+Nothing is committed to `main` by the pipeline: the version is in the tag only, so `main` can be protected (*Settings > Rules*: require a pull request and the CI check) without blocking the releases.
 
-> If `main` has a protection rule that blocks pushes, allow *GitHub Actions* to push, otherwise the pipeline stops at the "Commit, tag and push" step.
+The first release uses `FW_VERSION` of `include/Config.h` (45.4.0.0). To jump to a new version by hand (e.g. 46.0.0.0), set it in `FW_VERSION`: if it's higher than the computed one, it wins. A release can also be started by hand: *Actions > Release > Run workflow* (from `main`).
 
 ### 9.3 Publishing an update on Google Drive (alternative)
 
 Useful if the repository stays private.
 
-1. Change the version in `include/Config.h` (`FW_VERSION`), e.g. from `45.4.0.0` to `45.5.0.0`, or run `python3 scripts/bump_version.py minor`. You can also use the files of a GitHub release.
+1. Change the version in `include/Config.h` (`FW_VERSION`), e.g. from `45.4.0.0` to `45.5.0.0`, or build with `FW_VERSION=45.5.0.0 pio run`. You can also use the files of a GitHub release.
 2. Run the **Tests + Build** task.
 3. Upload `AllInOneSonoff_v45.5.0.0.ota.bin.gz` to Google Drive → right click → *Share* → *General access: Anyone with the link* → *Copy link*.
 4. Create `manifest.json` (example in [`doc/ota_manifest.json`](doc/ota_manifest.json)) with the new version and the link from step 3, upload it to Drive and share it the same way.
 5. In the Sonoff settings, in *Firmware update url*, paste the **manifest link**. Drive share links are converted to direct download links automatically.
 
-For the next updates, upload the files as a **new version of the same files** (right click → *File information* → *Manage versions* → *Upload new version*): the links stay the same and you don't have to touch the Sonoff.
+With a custom url, a freshly flashed Sonoff keeps using GitHub until you set it. For the next updates, upload the files as a **new version of the same files** (right click → *File information* → *Manage versions* → *Upload new version*): the links stay the same and you don't have to touch the Sonoff.
 
 The same firmware works in both modes, so one manifest is enough for all your devices. If you want to try an update on one device first, give it a different manifest. Any other web server works too (GitHub Releases, nginx on a NAS...), as long as it sends the `Content-Length` of the file.
 
@@ -423,8 +431,8 @@ The same firmware works in both modes, so one manifest is enough for all your de
 | `doc/` | Manual Home Assistant YAML, OTA manifest example, notes |
 | `.vscode/tasks.json` | VS Code tasks |
 | `.github/workflows/ci.yml` | Tests and build on GitHub at every push and pull request |
-| `.github/workflows/release.yml` | Release by hand: version increment, build, signature, GitHub release |
-| `scripts/bump_version.py`, `make_manifest.py` | Version increment and OTA manifest (used by the Release pipeline, also usable by hand) |
+| `.github/workflows/release.yml` | Release at every merged PR (or by hand): version from the tags, build, signature, GitHub release |
+| `scripts/next_version.py`, `make_manifest.py` | Next version from the git tags and OTA manifest (used by the Release pipeline); tests in `scripts/test_scripts.py` |
 
 | Module | Content |
 |---|---|
@@ -452,7 +460,7 @@ The tests cover: version comparison and Google Drive links, OTA manifest, hex co
 ### GitHub pipelines
 
 - **CI** (`ci.yml`) starts by itself at every push and pull request: PC unit tests + firmware build. The result is in the *Actions* tab and as ✅/❌ next to the commits. The firmware built here is **not** signed (the key is not available to CI) and can be downloaded as an *artifact* for tests.
-- **Release** (`release.yml`) starts only by hand, see [section 9.2](#92-publishing-an-update-with-github-releases-recommended).
+- **Release** (`release.yml`) starts when a PR is merged into `main` (or by hand), see [section 9.2](#92-publishing-an-update-with-github-releases-recommended).
 
 ### Memory and flash
 

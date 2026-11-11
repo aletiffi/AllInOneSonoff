@@ -3,7 +3,8 @@
 
 #include <Arduino.h>
 
-// Firmware update from a json manifest reachable at OtaUrl (http or https, Google Drive links supported):
+// Firmware update from a json manifest reachable at OtaUrl (http or https, Google Drive links supported).
+// OtaUrl empty -> OTA_DEFAULT_URL (latest GitHub release), "off" -> updates disabled.
 //   {"version": "45.4.0.0", "url": "https://.../AllInOneSonoff_v45.4.0.0.bin"}
 // The firmware is downloaded only if the manifest version is newer than FW_VERSION and,
 // if keys/public.key existed at build time, it is installed only if signed with keys/private.key.
@@ -14,6 +15,8 @@ void Ota_Request();
 String Ota_Status();
 // Version of the last manifest read, "" if never read
 String Ota_LatestVersion();
+// Manifest url in use: the setting, or OTA_DEFAULT_URL if empty; "" if updates are disabled
+String Ota_ManifestUrl();
 bool Ota_IsSigningEnabled();
 
 #endif
