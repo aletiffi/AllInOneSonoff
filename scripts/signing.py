@@ -80,6 +80,9 @@ def write_header():
 
 
 def firmware_version():
+    # Release builds: version from the environment (computed from the git tags)
+    if os.environ.get("FW_VERSION"):
+        return os.environ["FW_VERSION"]
     with open(os.path.join(PROJECT_DIR, "include", "Config.h")) as f:
         m = re.search(r'#define\s+FW_VERSION\s+"([^"]+)"', f.read())
     return m.group(1) if m else "unknown"
@@ -153,4 +156,11 @@ elif os.path.isfile(PUBLIC_KEY) and os.path.isfile(PRIVATE_KEY):
 
 write_header()
 env.Append(CPPPATH=[GEN_DIR])
+
+# FW_VERSION=45.4.0.1 pio run  -> firmware built with that version (used by the release pipeline)
+if os.environ.get("FW_VERSION"):
+    if not re.match(r"^\d+\.\d+\.\d+\.\d+$", os.environ["FW_VERSION"]):
+        raise SystemExit("[signing] FW_VERSION must be major.minor.patch.build, e.g. 45.4.0.1")
+    env.Append(CPPDEFINES=[("FW_VERSION", env.StringifyMacro(os.environ["FW_VERSION"]))])
+    log("Firmware version from the environment: " + os.environ["FW_VERSION"])
 env.AddPostAction("$BUILD_DIR/${PROGNAME}.bin", sign_firmware)

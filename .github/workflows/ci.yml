@@ -25,7 +25,9 @@ jobs:
         run: pip install platformio
 
       - name: Unit tests (PC)
-        run: pio test -e native
+        run: |
+          pio test -e native
+          python3 -m unittest discover -s scripts -p 'test_*.py'
 
       # keys/private.key is not in the repository: the firmware is built with the
       # public key (OTA signature check enabled) but the .bin is not signed

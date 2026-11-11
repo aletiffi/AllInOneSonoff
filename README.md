@@ -374,29 +374,31 @@ The **Release** pipeline does everything by itself: tests, version increment, bu
 2. The repository must be **public**, otherwise the Sonoff can't download the files (private release downloads need a login). The private key is never in the repository, so publishing the code doesn't compromise the updates.
 3. Nothing to do on the Sonoffs: with *Firmware update url* empty they already use the latest GitHub release (the default address is `OTA_DEFAULT_URL` in `include/Config.h`; change it if you use a fork).
 
-**For every update:**
-1. Push your changes to `main`.
-2. On GitHub: *Actions > Release > Run workflow*, choose which part of the version to increment and press *Run workflow*:
+**For every update: open a pull request and merge it.** That's all.
 
-| Choice | Example | When |
+1. Work on a branch (e.g. `feature/new-effect`), push it and open a pull request to `main`. The **CI** runs the tests and the build on the PR: merge only when it's green ✅.
+2. If needed, add a **label** to the PR to choose the version (create the labels once in *Issues > Labels*):
+
+| PR label | Example | When |
 |---|---|---|
-| `minor` (default) | 45.4.0.0 → 45.5.0.0 | New features |
-| `patch` | 45.4.0.0 → 45.4.1.0 | Fixes |
-| `build` | 45.4.0.0 → 45.4.0.1 | Small changes |
-| `major` | 45.4.0.0 → 46.0.0.0 | Big changes |
+| *(none)* | 45.4.0.0 → 45.4.0.1 | Default: small changes and fixes |
+| `release:patch` | 45.4.0.3 → 45.4.1.0 | Fixes |
+| `release:minor` | 45.4.0.3 → 45.5.0.0 | New features |
+| `release:major` | 45.4.0.3 → 46.0.0.0 | Big changes |
+| `no-release` | — | No release (e.g. README only) |
 
-3. The pipeline runs the tests (if they fail, it stops and changes nothing), updates `FW_VERSION`, builds, signs, creates the commit *Release vX* and the tag `vX`, and publishes the release with `.bin`, `.ota.bin.gz` and `manifest.json` (and the SHA256 checksums).
+3. **Merge** the PR. The **Release** pipeline starts by itself: tests (if they fail it stops and publishes nothing), next version from the latest `vX` tag, build with that version, signature, tag `vX` and release with `.bin`, `.ota.bin.gz`, `manifest.json` and SHA256 checksums. The release notes list the merged PRs.
 4. Within an hour the Sonoffs update by themselves (or press *Install* in Home Assistant).
 
-After a release run `git pull`: the pipeline has created a commit with the new version.
+Nothing is committed to `main` by the pipeline: the version is in the tag only, so `main` can be protected (*Settings > Rules*: require a pull request and the CI check) without blocking the releases.
 
-> If `main` has a protection rule that blocks pushes, allow *GitHub Actions* to push, otherwise the pipeline stops at the "Commit, tag and push" step.
+The first release uses `FW_VERSION` of `include/Config.h` (45.4.0.0). To jump to a new version by hand (e.g. 46.0.0.0), set it in `FW_VERSION`: if it's higher than the computed one, it wins. A release can also be started by hand: *Actions > Release > Run workflow* (from `main`).
 
 ### 9.3 Publishing an update on Google Drive (alternative)
 
 Useful if the repository stays private.
 
-1. Change the version in `include/Config.h` (`FW_VERSION`), e.g. from `45.4.0.0` to `45.5.0.0`, or run `python3 scripts/bump_version.py minor`. You can also use the files of a GitHub release.
+1. Change the version in `include/Config.h` (`FW_VERSION`), e.g. from `45.4.0.0` to `45.5.0.0`, or build with `FW_VERSION=45.5.0.0 pio run`. You can also use the files of a GitHub release.
 2. Run the **Tests + Build** task.
 3. Upload `AllInOneSonoff_v45.5.0.0.ota.bin.gz` to Google Drive → right click → *Share* → *General access: Anyone with the link* → *Copy link*.
 4. Create `manifest.json` (example in [`doc/ota_manifest.json`](doc/ota_manifest.json)) with the new version and the link from step 3, upload it to Drive and share it the same way.
@@ -429,8 +431,8 @@ The same firmware works in both modes, so one manifest is enough for all your de
 | `doc/` | Manual Home Assistant YAML, OTA manifest example, notes |
 | `.vscode/tasks.json` | VS Code tasks |
 | `.github/workflows/ci.yml` | Tests and build on GitHub at every push and pull request |
-| `.github/workflows/release.yml` | Release by hand: version increment, build, signature, GitHub release |
-| `scripts/bump_version.py`, `make_manifest.py` | Version increment and OTA manifest (used by the Release pipeline, also usable by hand) |
+| `.github/workflows/release.yml` | Release at every merged PR (or by hand): version from the tags, build, signature, GitHub release |
+| `scripts/next_version.py`, `make_manifest.py` | Next version from the git tags and OTA manifest (used by the Release pipeline); tests in `scripts/test_scripts.py` |
 
 | Module | Content |
 |---|---|
@@ -458,7 +460,7 @@ The tests cover: version comparison and Google Drive links, OTA manifest, hex co
 ### GitHub pipelines
 
 - **CI** (`ci.yml`) starts by itself at every push and pull request: PC unit tests + firmware build. The result is in the *Actions* tab and as ✅/❌ next to the commits. The firmware built here is **not** signed (the key is not available to CI) and can be downloaded as an *artifact* for tests.
-- **Release** (`release.yml`) starts only by hand, see [section 9.2](#92-publishing-an-update-with-github-releases-recommended).
+- **Release** (`release.yml`) starts when a PR is merged into `main` (or by hand), see [section 9.2](#92-publishing-an-update-with-github-releases-recommended).
 
 ### Memory and flash
 

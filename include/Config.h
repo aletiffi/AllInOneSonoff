@@ -4,7 +4,11 @@
 //----------------------------------------------------------------------------
 // Firmware
 //----------------------------------------------------------------------------
+// Releases: set by the GitHub pipeline from the git tags (FW_VERSION environment variable,
+// see scripts/signing.py). This value is used for local builds and as minimum version.
+#ifndef FW_VERSION
 #define FW_VERSION                "45.4.0.0"
+#endif
 #define DEFAULT_AP_NAME           "SonoffAllInOne"
 //----------------------------------------------------------------------------
 // Sonoff r1 pins
