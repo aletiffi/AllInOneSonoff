@@ -149,15 +149,20 @@ const char webPage[] PROGMEM = R"=====(
             <input type="password" value="" id="MQTT_Password" placeholder="MQTT Password" maxlength="20">
           </p>
           <p>
-            <label for="OTA_DRIVE_KEY">Ota Drive Product Key</label>
+            <label for="OTA_URL">Firmware update url (json manifest, "-" to delete)</label>
           </p>
           <p>
-            <input value="" id="OTA_DRIVE_KEY" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" maxlength="36">
+            <input value="" id="OTA_URL" placeholder="https://drive.google.com/file/d/..." maxlength="150">
           </p>
           <br>
           <p>
             <button type="button" id="savebtn" style="background-color: cornflowerblue;" onclick="save()">Save Settings</button>
           </p>
+          <hr>
+          <p>
+            <button type="button" style="background-color: rgb(120, 190, 120);" onclick="checkUpdate()">Check firmware update</button>
+          </p>
+          <p class="info" id="ota_status"></p>
           <hr>
           <p>
             <a href="/restart"><button style="background-color: rgb(216, 196, 20);">Restart Device</button></a>
@@ -190,6 +195,10 @@ const char webPage[] PROGMEM = R"=====(
             document.getElementById("Device_Mode").value = info.mode;
             document.getElementById("title").innerText = info.hostname;
             document.getElementById("info").innerText = info.mode + " mode - state " + info.state + " - fw " + info.version;
+            document.getElementById("ota_status").innerText = "Update: " + info.ota_status;
+            if (info.ota_url != "") {
+              document.getElementById("OTA_URL").placeholder = info.ota_url;
+            }
             if (info.mode == "LedStrip") {
               document.getElementById("ledstrip").classList.remove("hidden");
               document.getElementById("colorWell").value = info.color;
@@ -231,7 +240,7 @@ const char webPage[] PROGMEM = R"=====(
 
       function save() {
         var ids = ["Hostname", "Ssid", "Password", "MQTT_Sub", "MQTT_Pub", "MQTT_Server",
-                   "MQTT_User", "MQTT_Password", "OTA_DRIVE_KEY", "Device_Mode"];
+                   "MQTT_User", "MQTT_Password", "OTA_URL", "Device_Mode"];
         var data = {};
         for (var i = 0; i < ids.length; i++) {
           data[ids[i]] = document.getElementById(ids[i]).value;
@@ -242,6 +251,15 @@ const char webPage[] PROGMEM = R"=====(
         }
         post("/settings", data);
       };
+
+      function checkUpdate() {
+        var xhr = new XMLHttpRequest();
+        xhr.open("GET", "/update", true);
+        xhr.send();
+        document.getElementById("ota_status").innerText = "Update: Checking...";
+        // The device can be busy for a while (or restart after the update)
+        setTimeout(loadInfo, 15000);
+      }
 
       function eepromConfirm() {
         if (confirm("Are you sure to clean all EEPROM?")) {

@@ -45,7 +45,7 @@ If the LED does not light up, the network signal may be too weak, to restart the
 
 Now the device is connected to the local network, and it is possible to enter the MQTT parameters through the web page reachable in localhost, by entering `HostName.local` in the browser.
 
-If the OTA Drive ProductKey is present, it is possible to manage the updating of future firmware with this platform without having to flash the device by hand.
+If the **Firmware update url** is set, the device updates itself over the air (see below).
 
 **MQTT**
 -----------------------------------------
@@ -53,6 +53,29 @@ Commands are JSON messages on the subscribe topic, the state is published on the
 
 - Switch: `{"state": "ON"}` / `{"state": "OFF"}`
 - LedStrip: `{"state": "ON", "brightness": 120, "color": {"r": 255, "g": 0, "b": 80}, "effect": "Random"}` (effects: `Solid`, `Random`)
+
+**Firmware update (OTA)**
+-----------------------------------------
+In the settings enter the url of a small json **manifest** (http or https):
+
+```json
+{
+  "version": "45.2.0.0",
+  "url": "https://drive.google.com/file/d/<BIN_FILE_ID>/view?usp=sharing"
+}
+```
+
+The device downloads the manifest at the first connection, then every hour, with the integrated button (3 flashes) or with the `Check firmware update` button of the home page. If `version` is newer than the running firmware, the `.bin` at `url` is downloaded and flashed, then the device restarts. The last result is shown in the home page.
+
+Using Google Drive:
+1. upload the `.bin` and the manifest (e.g. `manifest.json`, an example is in `doc/ota_manifest.json`) to Google Drive;
+2. share both files as "Anyone with the link";
+3. put the share link of the `.bin` in the manifest and the share link of the manifest in the device settings. Share links (`https://drive.google.com/file/d/<ID>/view...`) are converted automatically to direct download links;
+4. to release a new firmware, upload the new `.bin` and the updated manifest as **new versions** of the same files (Drive: *Manage versions*), so the links don't change.
+
+The same firmware works in both modes, so one manifest can be used by all the devices; a different url per device allows updating them separately (e.g. a test device first). Any other web server works too (GitHub releases, a local nginx...), provided that it reports the `Content-Length` of the `.bin`. The server certificate is not verified. Enter `-` in the url field to delete the url.
+
+The firmware uses the whole 1MB flash without filesystem (`eagle.flash.1m.ld`) to leave space for the update: devices running an older firmware must be flashed once by serial.
 
 **Integrated button functionality**
 -----------------------------------------
@@ -72,4 +95,18 @@ While holding the Sonoff button, the LED will flash once per second. Based on th
 **Build**
 -----------------------------------------
 The project is built with PlatformIO (`pio run`, `pio run -t upload`). The DigiOut, ReadInput and StoreStrings libraries are included in the `lib` folder; ArduinoJson, PubSubClient and FastLED are downloaded automatically.
+
+| Module (`include/*.h`, `src/*.cpp`) | Content |
+|------------|-----------------------------------------------------------|
+| Config     | Firmware version, pins, timings, sizes (header only) |
+| Settings   | Settings and last state, EEPROM load/save, device mode |
+| Device     | Relay, status led, on/off/toggle, restart, EEPROM clean |
+| WallSwitch | Switch mode: wall switch on GPIO14 |
+| LedStrip   | LedStrip mode: ws2812b on GPIO14, color, brightness, effects |
+| Button     | Integrated multifunction button |
+| Network    | Wifi, access point, mDNS, connection check |
+| Mqtt       | MQTT client, commands and state |
+| WebUI      | Web server, home page (`HomePage.h`) and http api |
+| Ota        | Firmware update from json manifest |
+
 Within this repository there is the .bin file to be installed in the Sonoff.
