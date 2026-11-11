@@ -1,0 +1,141 @@
+name: Release
+
+# Started by hand: GitHub > Actions > Release > Run workflow.
+# 1. runs the unit tests
+# 2. increments FW_VERSION in include/Config.h (the chosen part)
+# 3. builds the firmware and signs the OTA image with the OTA_PRIVATE_KEY secret
+# 4. commits the new version, creates the tag v<version> and pushes them
+# 5. creates the GitHub release with:
+#      AllInOneSonoff_v<version>.bin          firmware for the serial flash
+#      AllInOneSonoff_v<version>.ota.bin.gz   signed OTA image
+#      manifest.json                          OTA manifest for the devices
+#    The url of the latest manifest never changes:
+#      https://github.com/<owner>/<repo>/releases/latest/download/manifest.json
+#
+# Required secret (Settings > Secrets and variables > Actions > New repository secret):
+#   OTA_PRIVATE_KEY = content of keys/private.key
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version part to increment (major.minor.patch.build)"
+        type: choice
+        options: [minor, patch, build, major]
+        default: minor
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Unit tests (PC)
+        run: pio test -e native
+
+      - name: Signing key
+        env:
+          OTA_PRIVATE_KEY: ${{ secrets.OTA_PRIVATE_KEY }}
+        run: |
+          if [ -z "$OTA_PRIVATE_KEY" ]; then
+            echo "::error::Secret OTA_PRIVATE_KEY missing: add the content of keys/private.key in Settings > Secrets and variables > Actions"
+            exit 1
+          fi
+          umask 077
+          printf '%s\n' "$OTA_PRIVATE_KEY" > keys/private.key
+
+      - name: Increment version
+        id: version
+        run: python3 scripts/bump_version.py "${{ inputs.bump }}" >> "$GITHUB_OUTPUT"
+
+      # signing.py checks that the secret matches keys/public.key, then signs the OTA image
+      - name: Build firmware
+        run: pio run -e sonoff_sv
+
+      - name: Release files
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -e
+          name="AllInOneSonoff_v${VERSION}"
+          test -f "${name}.bin"
+          test -f "${name}.ota.bin.gz"
+          mkdir -p release
+          cp "${name}.bin" "${name}.ota.bin.gz" release/
+          python3 scripts/make_manifest.py "$VERSION" \
+            "https://github.com/${REPO}/releases/download/v${VERSION}/${name}.ota.bin.gz" release/manifest.json
+          {
+            echo "## AllInOneSonoff v${VERSION}"
+            echo
+            echo "| File | Use |"
+            echo "|---|---|"
+            echo "| \`${name}.bin\` | First flash by serial |"
+            echo "| \`${name}.ota.bin.gz\` | OTA update (gzip + signed) |"
+            echo "| \`manifest.json\` | OTA manifest |"
+            echo
+            echo "OTA url for the devices (always the latest release):"
+            echo "\`https://github.com/${REPO}/releases/latest/download/manifest.json\`"
+            echo
+            echo "SHA256:"
+            echo '```'
+            (cd release && sha256sum ./*.bin ./*.gz manifest.json | sed "s#./##")
+            echo '```'
+          } > release/notes.md
+
+      - name: Commit, tag and push
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add include/Config.h
+          git commit -m "Release v${VERSION}"
+          git tag -a "v${VERSION}" -m "Release v${VERSION}"
+          git push origin "HEAD:${GITHUB_REF_NAME}" "v${VERSION}"
+
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "v${VERSION}" \
+            --title "AllInOneSonoff v${VERSION}" \
+            --notes-file release/notes.md \
+            --generate-notes \
+            --latest \
+            release/AllInOneSonoff_v${VERSION}.bin \
+            release/AllInOneSonoff_v${VERSION}.ota.bin.gz \
+            release/manifest.json
+
+      - name: Remove signing key
+        if: always()
+        run: rm -f keys/private.key
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-${{ steps.version.outputs.version }}
+          path: release/

@@ -84,6 +84,20 @@ static void test_parse_manifest_ok() {
   TEST_ASSERT_EQUAL_STRING("https://drive.google.com/uc?export=download&confirm=t&id=BIN", url);
 }
 
+static void test_parse_manifest_github_release() {
+  // Manifest created by .github/workflows/release.yml
+  char version[24], url[256];
+  const char* json = "{\n  \"version\": \"45.5.0.0\",\n  \"url\": \"https://github.com/aletiffi/AllInOneSonoff/releases/download/v45.5.0.0/AllInOneSonoff_v45.5.0.0.ota.bin.gz\"\n}\n";
+  TEST_ASSERT_EQUAL_INT(OTA_MANIFEST_OK, ota_parse_manifest(json, version, sizeof(version), url, sizeof(url)));
+  TEST_ASSERT_EQUAL_STRING("45.5.0.0", version);
+  TEST_ASSERT_EQUAL_STRING("https://github.com/aletiffi/AllInOneSonoff/releases/download/v45.5.0.0/AllInOneSonoff_v45.5.0.0.ota.bin.gz", url);
+  // Url of the latest manifest: fits in the settings field (150 chars) and is not modified
+  const char* latest = "https://github.com/aletiffi/AllInOneSonoff/releases/latest/download/manifest.json";
+  TEST_ASSERT_TRUE(strlen(latest) <= 150);
+  TEST_ASSERT_TRUE(ota_normalize_url(latest, url, sizeof(url)));
+  TEST_ASSERT_EQUAL_STRING(latest, url);
+}
+
 static void test_parse_manifest_errors() {
   char version[16], url[200];
   TEST_ASSERT_EQUAL_INT(OTA_MANIFEST_INVALID_JSON, ota_parse_manifest("<html>Google Drive login</html>", version, sizeof(version), url, sizeof(url)));
@@ -106,6 +120,7 @@ int runUnityTests() {
   RUN_TEST(test_normalize_other_urls_unchanged);
   RUN_TEST(test_normalize_buffer_too_small);
   RUN_TEST(test_parse_manifest_ok);
+  RUN_TEST(test_parse_manifest_github_release);
   RUN_TEST(test_parse_manifest_errors);
   return UNITY_END();
 }

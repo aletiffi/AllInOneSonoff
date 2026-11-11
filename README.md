@@ -91,7 +91,7 @@ All the useful commands are available as **tasks**: menu *Terminal > Run Task...
 
 From the terminal, the same commands are `pio run`, `pio run -t upload`, `pio device monitor`, `pio test -e native`.
 
-**After every build** you'll find two files in the project folder:
+**After every build** you'll find two files in the project folder (they're not saved on git: the official versions are in the GitHub *Releases*):
 - `AllInOneSonoff_v<version>.bin`: the firmware to write **by serial**;
 - `AllInOneSonoff_v<version>.ota.bin.gz`: compressed and **signed** firmware, for **OTA** updates (see [section 9](#9-firmware-updates-ota)).
 
@@ -357,9 +357,40 @@ In the settings, **Firmware update url** contains the address of a small **manif
 
 The Sonoff reads the manifest at startup, then every hour, with the button (3 flashes), with the *Check firmware update* button (web page or Home Assistant) or with *Install* on the Home Assistant `update` entity. If `version` is **newer** than the installed one, it downloads the file at `url`, checks the **signature**, installs it and restarts. The result is shown in the web page and in Home Assistant.
 
-### 9.2 Publishing an update on Google Drive
+### 9.2 Publishing an update with GitHub Releases (recommended)
 
-1. Change the version in `include/Config.h` (`FW_VERSION`), e.g. from `45.4.0.0` to `45.5.0.0`.
+The **Release** pipeline does everything by itself: tests, version increment, build, signature and download page.
+
+**One-time setup:**
+1. On GitHub: *Settings > Secrets and variables > Actions > New repository secret*. Name: `OTA_PRIVATE_KEY`, value: the **whole content** of `keys/private.key` (including the `-----BEGIN` / `-----END` lines). GitHub keeps it encrypted and doesn't show it to anyone, not even in the logs.
+2. The repository must be **public**, otherwise the Sonoff can't download the files (private release downloads need a login). The private key is never in the repository, so publishing the code doesn't compromise the updates.
+3. In the settings of every Sonoff, put this in *Firmware update url*:
+   `https://github.com/aletiffi/AllInOneSonoff/releases/latest/download/manifest.json`
+   This address always points to the **latest** release: you set it once and never change it again.
+
+**For every update:**
+1. Push your changes to `main`.
+2. On GitHub: *Actions > Release > Run workflow*, choose which part of the version to increment and press *Run workflow*:
+
+| Choice | Example | When |
+|---|---|---|
+| `minor` (default) | 45.4.0.0 → 45.5.0.0 | New features |
+| `patch` | 45.4.0.0 → 45.4.1.0 | Fixes |
+| `build` | 45.4.0.0 → 45.4.0.1 | Small changes |
+| `major` | 45.4.0.0 → 46.0.0.0 | Big changes |
+
+3. The pipeline runs the tests (if they fail, it stops and changes nothing), updates `FW_VERSION`, builds, signs, creates the commit *Release vX* and the tag `vX`, and publishes the release with `.bin`, `.ota.bin.gz` and `manifest.json` (and the SHA256 checksums).
+4. Within an hour the Sonoffs update by themselves (or press *Install* in Home Assistant).
+
+After a release run `git pull`: the pipeline has created a commit with the new version.
+
+> If `main` has a protection rule that blocks pushes, allow *GitHub Actions* to push, otherwise the pipeline stops at the "Commit, tag and push" step.
+
+### 9.3 Publishing an update on Google Drive (alternative)
+
+Useful if the repository stays private.
+
+1. Change the version in `include/Config.h` (`FW_VERSION`), e.g. from `45.4.0.0` to `45.5.0.0`, or run `python3 scripts/bump_version.py minor`. You can also use the files of a GitHub release.
 2. Run the **Tests + Build** task.
 3. Upload `AllInOneSonoff_v45.5.0.0.ota.bin.gz` to Google Drive → right click → *Share* → *General access: Anyone with the link* → *Copy link*.
 4. Create `manifest.json` (example in [`doc/ota_manifest.json`](doc/ota_manifest.json)) with the new version and the link from step 3, upload it to Drive and share it the same way.
@@ -369,7 +400,7 @@ For the next updates, upload the files as a **new version of the same files** (r
 
 The same firmware works in both modes, so one manifest is enough for all your devices. If you want to try an update on one device first, give it a different manifest. Any other web server works too (GitHub Releases, nginx on a NAS...), as long as it sends the `Content-Length` of the file.
 
-### 9.3 Security: signed firmware
+### 9.4 Security: signed firmware
 
 - Downloads over **https** are encrypted. The server certificate isn't verified (the Sonoff has no certificate list or reliable clock), but that's fine because the firmware itself is verified.
 - Every OTA image is **signed** (RSA 2048 + SHA256) with `keys/private.key`. The Sonoff contains `keys/public.key` and **refuses** unsigned, damaged or differently signed firmware, and keeps running the current one.
@@ -391,7 +422,9 @@ The same firmware works in both modes, so one manifest is enough for all your de
 | `keys/` | Signing keys (`private.key` is not committed) |
 | `doc/` | Manual Home Assistant YAML, OTA manifest example, notes |
 | `.vscode/tasks.json` | VS Code tasks |
-| `.github/workflows/ci.yml` | Tests and build on GitHub at every push |
+| `.github/workflows/ci.yml` | Tests and build on GitHub at every push and pull request |
+| `.github/workflows/release.yml` | Release by hand: version increment, build, signature, GitHub release |
+| `scripts/bump_version.py`, `make_manifest.py` | Version increment and OTA manifest (used by the Release pipeline, also usable by hand) |
 
 | Module | Content |
 |---|---|
@@ -415,6 +448,11 @@ pio test -e sonoff_sv     # on the Sonoff connected by serial
 ```
 
 The tests cover: version comparison and Google Drive links, OTA manifest, hex colors and effects, MQTT commands and states (also the messages sent by Home Assistant), settings validation, and Home Assistant discovery (required fields, unique ids, topics, color modes, message size). The parts that need the hardware (WiFi, relay, EEPROM) must be tested on the device.
+
+### GitHub pipelines
+
+- **CI** (`ci.yml`) starts by itself at every push and pull request: PC unit tests + firmware build. The result is in the *Actions* tab and as ✅/❌ next to the commits. The firmware built here is **not** signed (the key is not available to CI) and can be downloaded as an *artifact* for tests.
+- **Release** (`release.yml`) starts only by hand, see [section 9.2](#92-publishing-an-update-with-github-releases-recommended).
 
 ### Memory and flash
 
