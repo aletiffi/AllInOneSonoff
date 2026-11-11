@@ -98,6 +98,27 @@ static void test_parse_manifest_github_release() {
   TEST_ASSERT_EQUAL_STRING(latest, url);
 }
 
+static void test_effective_url() {
+  const char* def = "https://github.com/aletiffi/AllInOneSonoff/releases/latest/download/manifest.json";
+  // Empty setting: default (latest GitHub release)
+  TEST_ASSERT_EQUAL_STRING(def, ota_effective_url("", def));
+  TEST_ASSERT_EQUAL_STRING(def, ota_effective_url(NULL, def));
+  // Old OTA Drive product key in the same EEPROM position, or a typo: default
+  TEST_ASSERT_EQUAL_STRING(def, ota_effective_url("abc12345-1a1a-12a1-a1ab-a1ab1a1ab123", def));
+  TEST_ASSERT_EQUAL_STRING(def, ota_effective_url("drive.google.com/file/d/X", def));
+  // Custom url (e.g. Google Drive or a test manifest): used as it is
+  const char* drive = "https://drive.google.com/file/d/MANIFEST/view?usp=sharing";
+  TEST_ASSERT_EQUAL_STRING(drive, ota_effective_url(drive, def));
+  TEST_ASSERT_EQUAL_STRING("http://192.168.1.10/manifest.json", ota_effective_url("http://192.168.1.10/manifest.json", def));
+  // "off": updates disabled
+  TEST_ASSERT_NULL(ota_effective_url("off", def));
+  TEST_ASSERT_NULL(ota_effective_url("OFF", def));
+  TEST_ASSERT_TRUE(ota_is_disabled("Off"));
+  TEST_ASSERT_FALSE(ota_is_disabled("offline"));
+  TEST_ASSERT_FALSE(ota_is_disabled(""));
+  TEST_ASSERT_FALSE(ota_is_disabled(NULL));
+}
+
 static void test_parse_manifest_errors() {
   char version[16], url[200];
   TEST_ASSERT_EQUAL_INT(OTA_MANIFEST_INVALID_JSON, ota_parse_manifest("<html>Google Drive login</html>", version, sizeof(version), url, sizeof(url)));
@@ -121,6 +142,7 @@ int runUnityTests() {
   RUN_TEST(test_normalize_buffer_too_small);
   RUN_TEST(test_parse_manifest_ok);
   RUN_TEST(test_parse_manifest_github_release);
+  RUN_TEST(test_effective_url);
   RUN_TEST(test_parse_manifest_errors);
   return UNITY_END();
 }

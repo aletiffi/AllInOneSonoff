@@ -41,6 +41,11 @@
 #define MAX_LENGTH_SETTING        20
 #define MAX_LENGTH_URL            150
 //----------------------------------------------------------------------------
+// Firmware updates: used when the "Firmware update url" setting is empty.
+// Always points to the manifest of the latest GitHub release.
+//----------------------------------------------------------------------------
+#define OTA_DEFAULT_URL           "https://github.com/aletiffi/AllInOneSonoff/releases/latest/download/manifest.json"
+//----------------------------------------------------------------------------
 // Json messages (payloads and mode names are in lib/AppLogic)
 //----------------------------------------------------------------------------
 #define JSON_MSG_LENGTH           256

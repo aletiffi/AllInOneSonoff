@@ -130,8 +130,9 @@ void Ota_Check() {
   firstCheckDone = true;
   lastOtaCheck = millis();
 
-  if (!ota_is_valid_url(OtaUrl.Val.c_str())) {
-    SetStatus("Update url not set");
+  const char* url = ota_effective_url(OtaUrl.Val.c_str(), OTA_DEFAULT_URL);
+  if (url == NULL) {
+    SetStatus("Updates disabled (update url = off)");
     return;
   }
   if (!deviceConnected) {
@@ -142,7 +143,7 @@ void Ota_Check() {
   char manifestUrl[MAX_LENGTH_BIN_URL];
   char version[MAX_LENGTH_VERSION];
   char binUrl[MAX_LENGTH_BIN_URL];
-  if (!ota_normalize_url(OtaUrl.Val.c_str(), manifestUrl, sizeof(manifestUrl))) {
+  if (!ota_normalize_url(url, manifestUrl, sizeof(manifestUrl))) {
     SetStatus("Update url too long");
     return;
   }
@@ -172,6 +173,11 @@ String Ota_Status() {
   return otaStatus;
 }
 
+String Ota_ManifestUrl() {
+  const char* url = ota_effective_url(OtaUrl.Val.c_str(), OTA_DEFAULT_URL);
+  return url ? String(url) : String("");
+}
+
 String Ota_LatestVersion() {
   return latestVersion;
 }
@@ -185,7 +191,11 @@ void Ota_Loop() {
     return;
   }
   // On request, at the first connection and then every hour
-  if (otaRequested || (!firstCheckDone && ota_is_valid_url(OtaUrl.Val.c_str())) || millis() - lastOtaCheck > T_1H) {
+  // Nothing to do when disabled, except answering a request with the status
+  if (ota_is_disabled(OtaUrl.Val.c_str()) && !otaRequested) {
+    return;
+  }
+  if (otaRequested || !firstCheckDone || millis() - lastOtaCheck > T_1H) {
     Ota_Check();
   }
 }

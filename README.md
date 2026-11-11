@@ -124,12 +124,12 @@ The first flash must be done by cable. All the following updates can be done ove
 | MQTT Server | for Home Assistant | IP address of the MQTT broker, e.g. `192.168.1.10` (or `192.168.1.10:1883`) |
 | MQTT User / Password | if the broker requires them | User created for MQTT (see [section 7](#7-home-assistant)) |
 | MQTT command/state topic | no | Leave empty: the defaults are `sonoff/<hostname>/set` and `sonoff/<hostname>/state` |
-| Firmware update url | no | Address of the update manifest, see [section 9](#9-firmware-updates-ota) |
+| Firmware update url | no | Leave empty: the Sonoff updates itself from the latest GitHub release. `off` disables the updates. See [section 9](#9-firmware-updates-ota) |
 
 4. Press **Save Settings**. The Sonoff connects to your WiFi. When it's connected, the Sonoff's led stays on.
 5. From now on the page is at `http://<hostname>.local` (e.g. `http://cucina.local`) or at the IP assigned by the router.
 
-Empty fields don't overwrite the saved values: you can change one field only and leave the others empty. To delete the update url, enter `-`. When you change the mode the Sonoff restarts by itself.
+Empty fields don't overwrite the saved values: you can change one field only and leave the others empty. To delete a custom update url (and go back to GitHub), enter `-`. When you change the mode the Sonoff restarts by itself.
 
 <p align="center"><img src="img/Settings.PNG" alt="Settings"/></p>
 
@@ -346,7 +346,15 @@ After the first serial flash, updates arrive over WiFi.
 
 ### 9.1 How it works
 
-In the settings, **Firmware update url** contains the address of a small **manifest** file:
+The Sonoff reads a small **manifest** file. Which one depends on the **Firmware update url** setting:
+
+| Firmware update url | Manifest used |
+|---|---|
+| *empty* (default) | `https://github.com/aletiffi/AllInOneSonoff/releases/latest/download/manifest.json`, the latest GitHub release |
+| an `http(s)://` address | that address (Google Drive, a test manifest, a local server...) |
+| `off` | none: automatic updates disabled |
+
+The manifest looks like this:
 
 ```json
 {
@@ -364,9 +372,7 @@ The **Release** pipeline does everything by itself: tests, version increment, bu
 **One-time setup:**
 1. On GitHub: *Settings > Secrets and variables > Actions > New repository secret*. Name: `OTA_PRIVATE_KEY`, value: the **whole content** of `keys/private.key` (including the `-----BEGIN` / `-----END` lines). GitHub keeps it encrypted and doesn't show it to anyone, not even in the logs.
 2. The repository must be **public**, otherwise the Sonoff can't download the files (private release downloads need a login). The private key is never in the repository, so publishing the code doesn't compromise the updates.
-3. In the settings of every Sonoff, put this in *Firmware update url*:
-   `https://github.com/aletiffi/AllInOneSonoff/releases/latest/download/manifest.json`
-   This address always points to the **latest** release: you set it once and never change it again.
+3. Nothing to do on the Sonoffs: with *Firmware update url* empty they already use the latest GitHub release (the default address is `OTA_DEFAULT_URL` in `include/Config.h`; change it if you use a fork).
 
 **For every update:**
 1. Push your changes to `main`.
@@ -396,7 +402,7 @@ Useful if the repository stays private.
 4. Create `manifest.json` (example in [`doc/ota_manifest.json`](doc/ota_manifest.json)) with the new version and the link from step 3, upload it to Drive and share it the same way.
 5. In the Sonoff settings, in *Firmware update url*, paste the **manifest link**. Drive share links are converted to direct download links automatically.
 
-For the next updates, upload the files as a **new version of the same files** (right click → *File information* → *Manage versions* → *Upload new version*): the links stay the same and you don't have to touch the Sonoff.
+With a custom url, a freshly flashed Sonoff keeps using GitHub until you set it. For the next updates, upload the files as a **new version of the same files** (right click → *File information* → *Manage versions* → *Upload new version*): the links stay the same and you don't have to touch the Sonoff.
 
 The same firmware works in both modes, so one manifest is enough for all your devices. If you want to try an update on one device first, give it a different manifest. Any other web server works too (GitHub Releases, nginx on a NAS...), as long as it sends the `Content-Length` of the file.
 
