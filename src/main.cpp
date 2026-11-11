@@ -7,6 +7,7 @@
 #include <ReadInput.h>
 #include <DigiOut.h>
 #include <StoreStrings.h>
+#include <FastLED.h>
 #include <ArduinoJson.h>
 #include <ESP8266httpUpdate.h>
 #include "GlobalVar.h"
@@ -17,10 +18,11 @@ PubSubClient client (espClient);
 ESP8266WebServer server(80);
 MDNSResponder mdns;
 ReadInput Button(SONOFF_BUTTON);
-ReadInput Switch(SONOFF_SWITCH);
+ReadInput Switch(SONOFF_GPIO14);
 DigiOut Led(SONOFF_LED, OFF_LED);
 DigiOut Rele(SONOFF_RELAY, OFF_RELAY);
 StoreStrings mem(SETTIGNS_EEPROM_SIZE, STATE_EEPROM_SIZE);
+CRGB leds[NUM_LEDS];
 
 void PushButtonFunction(int func);
 void Restart();
@@ -35,12 +37,23 @@ void Connection_Manager();
 void handleNotFound();
 void CleanEEPROM();
 void ChangeSettings();
+void SendInfo();
 void SaveSettingsInEeprom();
 void LoadSettingsFromEeprom();
 void SaveStateInEeprom();
 void LoadStateFromEeprom();
 void BuildFakeUrl();
 void OtaUpdate();
+// LedStrip mode
+void SetLedStrip(byte red, byte green, byte blue, byte brightness);
+void RgbEffectPlay();
+byte RgbChannelManager(byte channelVal, byte targetVal, byte incStep);
+byte RandomEffectStepSelector();
+void ChangeBrightness();
+void ChangeEffect();
+void ChangeColor();
+bool SelectEffect(String effect);
+byte HexString2Byte(String val);
 
 
 void setup() {
@@ -50,26 +63,42 @@ void setup() {
   if (!mem.isReady()) {
     mem.clear();
   }
-  
+
   Rele.Begin();
   Led.Begin();
   Led.Blink(T_100MS * 5, 1, T_100MS * 5);
 
-  switchState = Switch.State();
-  switchStatePre = switchState;
+  Serial.println("\n----------------------");
+  Serial.println("Application ver. " + String(FW_VERSION) + " running!");
+
+  // The device mode is needed before configuring GPIO14
+  LoadSettingsFromEeprom();
+  Serial.println("Device mode: " + String(deviceMode == LEDSTRIP_MODE ? MODE_LEDSTRIP : MODE_SWITCH));
+
+  if (deviceMode == LEDSTRIP_MODE) {
+    pinMode(SONOFF_GPIO14, OUTPUT);
+    FastLED.addLeds<WS2811, SONOFF_GPIO14, BRG>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
+    FastLED.clear();
+    FastLED.show();
+  } else {
+    switchState = Switch.State();
+    switchStatePre = switchState;
+  }
   pushButton = !Button.State();
   pushButtonPre = pushButton;
 
-  Serial.println("\n----------------------");
-  Serial.println("Application ver. " + String(FW_VERSION) + " running!");
   LoadStateFromEeprom();
   if (SwitchState.Val == 1) {
     Rele.On();
+    if (deviceMode == LEDSTRIP_MODE) {
+      SetLedStrip(Red.Val, Green.Val, Blue.Val, Brightness.Val);
+    }
   } else {
     Rele.Off();
   }
   BuildFakeUrl();
   Connection_Manager();
+  randomSeed(millis());
 }
 
 void loop() {
@@ -138,16 +167,23 @@ void loop() {
     }
   }
 
-  // Switch state check
-  switchState = Switch.State();
+  if (deviceMode == SWITCH_MODE) {
+    // Wall switch: every change of position toggles the relay
+    switchState = Switch.State();
+    if (switchState != switchStatePre) {
+      Switch_Toggle();
+    }
+    switchStatePre = switchState;
 
-  if (switchStatePre == false && switchState == true) {
-    Switch_Toggle();
+  } else {
+    // Ledstrip effects
+    if (RGB_Efect_Selected != Solid.Effect_Number && Rele.State() != OFF_RELAY) {
+      if (millis() - lastTimeRgbPlay >= T_250MS) {
+        lastTimeRgbPlay = millis();
+        RgbEffectPlay();
+      }
+    }
   }
-  if (switchStatePre == true && switchState == false) {
-    Switch_Toggle();
-  }
-  switchStatePre = switchState;
 }
 
 void PushButtonFunction(int func) {
@@ -210,16 +246,31 @@ void Restart() {
 }
 
 void Switch_On() {
-  Rele.On();
-  SwitchState.Val = 1;
-
-  if (deviceConnected) {
-    PublishState();
+  if (deviceMode == LEDSTRIP_MODE) {
+    if (Rele.State() == OFF_RELAY) {
+      Rele.On();
+      SwitchState.Val = 1;
+      // Power supply delay
+      delay(T_1S);
+    }
+    // Also publishes the state
+    SetLedStrip(Red.Val, Green.Val, Blue.Val, Brightness.Val);
+  } else {
+    Rele.On();
+    SwitchState.Val = 1;
+    if (deviceConnected) {
+      PublishState();
+    }
   }
   SaveStateInEeprom();
 }
 
 void Switch_Off() {
+  if (deviceMode == LEDSTRIP_MODE) {
+    FastLED.clear();
+    FastLED.show();
+    RGB_Efect_Selected = Solid.Effect_Number;
+  }
   Rele.Off();
   SwitchState.Val = 0;
 
@@ -245,6 +296,14 @@ void PublishState() {
     doc["state"] = OFF_PAYLOAD;
   } else {
     doc["state"] = ON_PAYLOAD;
+    if (deviceMode == LEDSTRIP_MODE) {
+      doc["brightness"] = Brightness.Val;
+      doc["effect"] = RbgEffects[RGB_Efect_Selected]->Effect_Name;
+      JsonObject color = doc.createNestedObject("color");
+      color["r"] = Red.Val;
+      color["g"] = Green.Val;
+      color["b"] = Blue.Val;
+    }
   }
   serializeJson(doc, msg_out);
   if (client.publish(MqttPubTopic.Val.c_str(), msg_out)) {
@@ -258,24 +317,46 @@ void PublishState() {
 void Callback(char *topic, byte *payload, unsigned int length) {
   StaticJsonDocument <JSON_MSG_LENGTH> doc;
   Serial.print("Payload recived: ");
-  for (byte i = 0; i < length; i++) {
+  for (unsigned int i = 0; i < length; i++) {
     Serial.print(char(payload[i]));
   }
   Serial.println("");
 
   if ((String(topic) == MqttSubTopic.Val) && (length > 5)) {
-    const char* stat;
     String state;
     Serial.println("Command/s on payload: ");
-    deserializeJson(doc, payload, length);
+    if (deserializeJson(doc, payload, length)) {
+      Serial.println("  - invalid json");
+      return;
+    }
     JsonObject root = doc.as<JsonObject>();
 
     for (JsonPair kv : root) {
+      String key = kv.key().c_str();
 
-      if (strcmp(kv.key().c_str(), "state") == 0) {
-        stat = doc["state"];
-        state = String(stat);
+      if (key.equals("state")) {
+        state = doc["state"].as<String>();
         Serial.println("  - state = " + state);
+
+      } else if (deviceMode == LEDSTRIP_MODE && key.equals("brightness")) {
+        Brightness.Val = doc["brightness"];
+        Serial.println("  - brightness = " + String(Brightness.Val));
+
+      } else if (deviceMode == LEDSTRIP_MODE && key.equals("color")) {
+        JsonObject color = doc["color"];
+        Red.Val = color["r"];
+        Green.Val = color["g"];
+        Blue.Val = color["b"];
+        Serial.println("  - color = R:" + String(Red.Val) + " G:" + String(Green.Val) + " B:"  + String(Blue.Val));
+
+      } else if (deviceMode == LEDSTRIP_MODE && key.equals("effect")) {
+        String effect = doc["effect"].as<String>();
+        if (SelectEffect(effect)) {
+          Serial.println("  - effect = " + effect);
+        }
+
+      } else {
+        Serial.println("  - key ignored = " + key);
       }
     }
 
@@ -428,28 +509,37 @@ void Connection_Manager() {
   WiFi.softAP(Hostname.Val.c_str());
   mdns.begin(Hostname.Val, WiFi.localIP());
   mdns.addService("http", "tcp", 80);
-  server.on("/", []() {
-    server.send(200, "text/html", webPage);
-  });
-  server.on("/on", []() {
-    server.sendHeader("Location", "/");
-    server.send(303);
-    Switch_On();
-  });
-  server.on("/off", []() {
-    server.sendHeader("Location", "/");
-    server.send(303);
-    Switch_Off();
-  });
-  server.on("/restart", []() {
-    server.sendHeader("Location", "/");
-    server.send(303);
-    Restart();
-  });
-  server.on("/settings", HTTP_POST, ChangeSettings);
-  server.on("/clean", HTTP_GET, CleanEEPROM);
-  server.onNotFound(handleNotFound);
-  server.begin();
+
+  // Routes are registered only once, Connection_Manager can be called many times
+  if (!webServerStarted) {
+    server.on("/", []() {
+      server.send_P(200, "text/html", webPage);
+    });
+    server.on("/info", HTTP_GET, SendInfo);
+    server.on("/on", []() {
+      server.sendHeader("Location", "/");
+      server.send(303);
+      Switch_On();
+    });
+    server.on("/off", []() {
+      server.sendHeader("Location", "/");
+      server.send(303);
+      Switch_Off();
+    });
+    server.on("/restart", []() {
+      server.sendHeader("Location", "/");
+      server.send(303);
+      Restart();
+    });
+    server.on("/brigthness", HTTP_POST, ChangeBrightness);
+    server.on("/effect", HTTP_POST, ChangeEffect);
+    server.on("/color", HTTP_POST, ChangeColor);
+    server.on("/settings", HTTP_POST, ChangeSettings);
+    server.on("/clean", HTTP_GET, CleanEEPROM);
+    server.onNotFound(handleNotFound);
+    server.begin();
+    webServerStarted = true;
+  }
 
   // Reset last connection time
   lastTimeCheckConn = millis();
@@ -470,6 +560,26 @@ void handleNotFound() {
   server.send(404, "text/plain", message);
 }
 
+void SendInfo() {
+  // Used by the home page to show the controls of the current mode
+  StaticJsonDocument <JSON_MSG_LENGTH> doc;
+  String msg_out;
+  char color[8];
+
+  doc["mode"] = deviceMode == LEDSTRIP_MODE ? MODE_LEDSTRIP : MODE_SWITCH;
+  doc["hostname"] = Hostname.Val;
+  doc["version"] = FW_VERSION;
+  doc["state"] = Rele.State() == OFF_RELAY ? OFF_PAYLOAD : ON_PAYLOAD;
+  if (deviceMode == LEDSTRIP_MODE) {
+    snprintf(color, sizeof(color), "#%02x%02x%02x", Red.Val, Green.Val, Blue.Val);
+    doc["color"] = color;
+    doc["brightness"] = Brightness.Val;
+    doc["effect"] = RbgEffects[RGB_Efect_Selected]->Effect_Name;
+  }
+  serializeJson(doc, msg_out);
+  server.send(200, "application/json", msg_out);
+}
+
 void CleanEEPROM() {
   Led.Blink(T_200MS, 3, T_200MS);
   mem.clear();
@@ -481,6 +591,7 @@ void CleanEEPROM() {
 void ChangeSettings() {
   StaticJsonDocument <512> doc;
   String data = server.arg("plain");
+  String oldMode = DeviceMode.Val;
   Serial.println("Parameters recived:");
   Serial.println(data);
   deserializeJson(doc, data);
@@ -488,14 +599,27 @@ void ChangeSettings() {
   for (JsonPair kv : root) {
     for (byte i = 0; i < NUM_WIFI_SETTINGS; i++) {
       if (strcmp(kv.key().c_str(), WifiSettings[i]->Name.c_str()) == 0) {
-        if (kv.value().as<String>() != " " && kv.value().as<String>() != "" && !kv.value().as<String>().startsWith(" ")) {
-          WifiSettings[i]->Val = kv.value().as<String>();
+        String val = kv.value().as<String>();
+        if (val != " " && val != "" && !val.startsWith(" ")) {
+          WifiSettings[i]->Val = val;
         }
       }
     }
   }
+  // Only known modes are accepted
+  if (DeviceMode.Val != MODE_SWITCH && DeviceMode.Val != MODE_LEDSTRIP) {
+    DeviceMode.Val = oldMode;
+  }
 
   SaveSettingsInEeprom();
+  server.send(200, "text/plain", "Settings saved");
+
+  if (DeviceMode.Val != oldMode && !(oldMode == "" && DeviceMode.Val == MODE_SWITCH)) {
+    // GPIO14 changes function: a restart is required
+    Serial.println("Device mode changed to " + DeviceMode.Val);
+    Switch_Off();
+    Restart();
+  }
   Connection_Manager();
 }
 
@@ -526,6 +650,9 @@ void LoadSettingsFromEeprom() {
   } else {
     wifiConfigured = false;
   }
+
+  // Empty or unknown mode (e.g. EEPROM written by an old firmware) -> Switch
+  deviceMode = DeviceMode.Val == MODE_LEDSTRIP ? LEDSTRIP_MODE : SWITCH_MODE;
 }
 
 void SaveStateInEeprom() {
@@ -539,7 +666,11 @@ void LoadStateFromEeprom() {
   Serial.println("Loading last state from EEPROM");
   mem.resetReadCounter2();
   for (byte i = 0; i < NUM_STATE_SETTINGS; i++) {
-    StateSettings[i]->Val = mem.read_pt2(mem.getLastReadedByte2()).toInt();
+    String val = mem.read_pt2(mem.getLastReadedByte2());
+    // Values never saved keep their default
+    if (val.length() > 0 && val != NULL_CHAR) {
+      StateSettings[i]->Val = val.toInt();
+    }
     Serial.print( StateSettings[i]->Name + ": " +  StateSettings[i]->Val + " ");
   }
   Serial.println("");
@@ -575,4 +706,131 @@ void OtaUpdate() {
       Serial.println(ret);
       break;
   }
+}
+
+//----------------------------------------------------------------------------
+// LedStrip mode
+//----------------------------------------------------------------------------
+void SetLedStrip(byte red, byte green, byte blue, byte brightness) {
+  if (deviceMode != LEDSTRIP_MODE) {
+    return;
+  }
+  fill_solid(leds, NUM_LEDS, CRGB(red, green, blue));
+  FastLED.setBrightness(brightness);
+  FastLED.show();
+  Serial.println("LedStrip updated -> R:" + String(red) + " G:" + String(green) + " B:" + String(blue) + " Brightness:" + String(brightness));
+  if (deviceConnected && RGB_Efect_Selected == Solid.Effect_Number) {
+    PublishState();
+  }
+}
+
+void RgbEffectPlay() {
+  if (RGB_Efect_Selected == Random.Effect_Number) {
+    if (RandomEffectStep >= RGB_COMBO_NUM) {
+      RGB_Efect_Selected = Solid.Effect_Number;
+      return;
+    }
+    byte target = Random_Effects[RandomEffectStep]->TargetVal;
+    // Steps 0,3,6 -> red; 1,4,7 -> green; 2,5,8 -> blue
+    switch (RandomEffectStep % 3) {
+      case 0:
+        Red.Val = RgbChannelManager(Red.Val, target, INCREMENT_STEP);
+        break;
+      case 1:
+        Green.Val = RgbChannelManager(Green.Val, target, INCREMENT_STEP);
+        break;
+      case 2:
+        Blue.Val = RgbChannelManager(Blue.Val, target, INCREMENT_STEP);
+        break;
+    }
+    SetLedStrip(Red.Val, Green.Val, Blue.Val, Brightness.Val);
+  }
+}
+
+byte RgbChannelManager(byte channelVal, byte targetVal, byte incStep) {
+  if (channelVal < targetVal) {
+    // Increase
+    if ((targetVal - channelVal) < incStep) {
+      return targetVal;
+    } else {
+      return channelVal + incStep;
+    }
+  } else if (channelVal > targetVal) {
+    // Decrease
+    if ((channelVal - targetVal) < incStep) {
+      return targetVal;
+    } else {
+      return channelVal - incStep;
+    }
+  } else {
+    // Target reached: choose the next step
+    RandomEffectStep = RandomEffectStepSelector();
+    return channelVal;
+  }
+}
+
+byte RandomEffectStepSelector() {
+  byte randSelection = random(0, RGB_COMBO_NUM);
+  // Verifies that not all channels are disabled
+  while ((Random_Effects[randSelection]->TargetVal == 0 ) && ((Red.Val == 0 && Green.Val == 0) || (Red.Val == 0 && Blue.Val == 0) || (Blue.Val == 0 && Green.Val == 0))) {
+    randSelection = random(0, RGB_COMBO_NUM);
+  }
+  return randSelection;
+}
+
+bool SelectEffect(String effect) {
+  for (byte i = 0; i < RGB_EFFECTS_NUM; i++) {
+    if (effect.equals(RbgEffects[i]->Effect_Name)) {
+      RGB_Efect_Selected = RbgEffects[i]->Effect_Number;
+      return true;
+    }
+  }
+  return false;
+}
+
+void ChangeBrightness() {
+  StaticJsonDocument <JSON_MSG_LENGTH> doc;
+  deserializeJson(doc, server.arg("plain"));
+  if (deviceMode == LEDSTRIP_MODE && doc.containsKey("Brightness")) {
+    Brightness.Val = constrain(doc["Brightness"].as<String>().toInt(), 0, MAX_RGB_VAL);
+    Serial.println("Brightness recived: " + String(Brightness.Val));
+    SetLedStrip(Red.Val, Green.Val, Blue.Val, Brightness.Val);
+    SaveStateInEeprom();
+  }
+  server.send(200, "text/plain", "OK");
+}
+
+void ChangeEffect() {
+  StaticJsonDocument <JSON_MSG_LENGTH> doc;
+  deserializeJson(doc, server.arg("plain"));
+  if (deviceMode == LEDSTRIP_MODE && doc.containsKey("effect")) {
+    String effect = doc["effect"].as<String>();
+    if (SelectEffect(effect)) {
+      Serial.println("Effect recived: " + effect);
+    }
+  }
+  server.send(200, "text/plain", "OK");
+}
+
+void ChangeColor() {
+  StaticJsonDocument <JSON_MSG_LENGTH> doc;
+  deserializeJson(doc, server.arg("plain"));
+  if (deviceMode == LEDSTRIP_MODE && doc.containsKey("color")) {
+    String color = doc["color"].as<String>();
+    if (color.length() == 7 && color.charAt(0) == '#') {
+      Red.Val = HexString2Byte(color.substring(1, 3));
+      Green.Val = HexString2Byte(color.substring(3, 5));
+      Blue.Val = HexString2Byte(color.substring(5, 7));
+      Serial.println("Color recived: " + color + " -> R: " + String(Red.Val) + " G: " + String(Green.Val) + " B: " + String(Blue.Val));
+      SetLedStrip(Red.Val, Green.Val, Blue.Val, Brightness.Val);
+      SaveStateInEeprom();
+    } else {
+      Serial.println("Color recived: " + color + " -> unable to decode");
+    }
+  }
+  server.send(200, "text/plain", "OK");
+}
+
+byte HexString2Byte(String val) {
+  return (byte) strtol(val.c_str(), NULL, 16);
 }

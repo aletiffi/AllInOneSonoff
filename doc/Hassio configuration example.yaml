@@ -1,6 +1,21 @@
+# Switch mode
   - platform: mqtt
     schema: json
-    name: Sonoff Test
+    name: Sonoff Switch
     state_topic: "stat/test/pow"
     command_topic: "cmnd/test/pow"
+    qos: 0
+
+# LedStrip mode
+  - platform: mqtt
+    schema: json
+    name: Sonoff LedStrip
+    state_topic: "stat/ledstrip/pow"
+    command_topic: "cmnd/ledstrip/pow"
+    brightness: true
+    rgb: true
+    effect: true
+    effect_list:
+      - Solid
+      - Random
     qos: 0
