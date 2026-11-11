@@ -72,8 +72,8 @@ void LoadSettingsFromEeprom() {
     Serial.println(WifiSettings[i]->Name + ": " + (secret ? "****" : WifiSettings[i]->Val));
   }
 
-  mqttConfigured = MqttSubTopic.Val.length() > 0 && MqttPubTopic.Val.length() > 0 && MqttServer.Val.length() > 0 &&
-                   MqttUser.Val.length() > 0 && MqttPassword.Val.length() > 0;
+  // Only the server is required: topics have defaults, user and password are optional
+  mqttConfigured = MqttServer.Val.length() > 0;
   wifiConfigured = Ssid.Val.length() > 0 && Password.Val.length() > 0;
 
   // Empty or unknown mode (e.g. EEPROM written by an old firmware) -> Switch

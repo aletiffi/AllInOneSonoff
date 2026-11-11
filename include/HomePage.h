@@ -66,6 +66,7 @@ const char webPage[] PROGMEM = R"=====(
         <div class="actions-container">
           <h1 id="title">Home Page</h1>
           <p class="info" id="info"></p>
+          <p class="info" id="mqtt_info"></p>
           <hr>
           <p>
             <a href="/on"><button style="background-color: rgb(14, 121, 14);">ON</button></a>
@@ -119,31 +120,31 @@ const char webPage[] PROGMEM = R"=====(
             <input type="password" value="" id="Password" placeholder="Wifi Password" maxlength="20">
           </p>
           <p>
-            <label for="MQTT_Sub">MQTT Subscribe topic</label>
+            <label for="MQTT_Sub">MQTT command topic (optional, default sonoff/&lt;hostname&gt;/set)</label>
           </p>
           <p>
             <input value="" id="MQTT_Sub" placeholder="cmnd/MyDevice" maxlength="20">
           </p>
           <p>
-            <label for="MQTT_Pub">MQTT Publish topic</label>
+            <label for="MQTT_Pub">MQTT state topic (optional, default sonoff/&lt;hostname&gt;/state)</label>
           </p>
           <p>
             <input value="" id="MQTT_Pub" placeholder="stat/MyDevice" maxlength="20">
           </p>
           <p>
-            <label for="MQTT_Server">MQTT Server</label>
+            <label for="MQTT_Server">MQTT Server (ip or ip:port, e.g. Home Assistant ip)</label>
           </p>
           <p>
             <input value="" id="MQTT_Server" placeholder="192.168.1.100" maxlength="20">
           </p>
           <p>
-            <label for="MQTT_User">MQTT User</label>
+            <label for="MQTT_User">MQTT User (optional)</label>
           </p>
           <p>
             <input value="" id="MQTT_User" placeholder="MQTT User" maxlength="20">
           </p>
           <p>
-            <label for="MQTT_Password">MQTT Password</label>
+            <label for="MQTT_Password">MQTT Password (optional)</label>
           </p>
           <p>
             <input type="password" value="" id="MQTT_Password" placeholder="MQTT Password" maxlength="20">
@@ -195,6 +196,8 @@ const char webPage[] PROGMEM = R"=====(
             document.getElementById("Device_Mode").value = info.mode;
             document.getElementById("title").innerText = info.hostname;
             document.getElementById("info").innerText = info.mode + " mode - state " + info.state + " - fw " + info.version;
+            document.getElementById("mqtt_info").innerText = "MQTT " + (info.mqtt_connected ? "connected" : "not connected") +
+              " - id " + info.unique_id + " - command topic " + info.mqtt_command + " - state topic " + info.mqtt_state;
             document.getElementById("ota_status").innerText = "Update: " + info.ota_status +
               (info.ota_signed ? " (signed firmware only)" : " (WARNING: signature check disabled)");
             if (info.ota_url != "") {

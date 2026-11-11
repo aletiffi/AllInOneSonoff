@@ -1,3 +1,4 @@
+#include <ColorLogic.h>
 #include "Device.h"
 #include "Config.h"
 #include "Settings.h"
@@ -25,8 +26,11 @@ void Switch_On() {
       // Power supply delay
       delay(T_1S);
     }
-    // Also publishes the state
+    // Also publishes the state with the solid effect
     LedStrip_Show();
+    if (LedStrip_Effect() != EFFECT_SOLID) {
+      PublishState();
+    }
   } else {
     Rele.On();
     SwitchState.Val = 1;

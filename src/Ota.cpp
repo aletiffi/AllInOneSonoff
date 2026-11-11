@@ -29,6 +29,7 @@ static bool otaRequested           = false;
 static bool firstCheckDone         = false;
 static unsigned long lastOtaCheck  = 0;
 static String otaStatus            = "Never checked";
+static String latestVersion        = "";
 
 static std::unique_ptr<WiFiClient> MakeClient(const char* url) {
   if (ota_is_https(url)) {
@@ -44,6 +45,8 @@ static std::unique_ptr<WiFiClient> MakeClient(const char* url) {
 static void SetStatus(const String& status) {
   otaStatus = status;
   Serial.println("OTA: " + status);
+  // Home Assistant "update" entity
+  Mqtt_PublishUpdateState(false);
 }
 
 static bool DownloadManifest(const char* url, char* version, char* binUrl) {
@@ -147,13 +150,16 @@ void Ota_Check() {
   if (!DownloadManifest(manifestUrl, version, binUrl)) {
     return;
   }
+  latestVersion = version;
 
   if (!ota_is_update_needed(version, FW_VERSION)) {
     SetStatus("Firmware up to date (" FW_VERSION ", available " + String(version) + ")");
     return;
   }
 
-  SetStatus("Updating " FW_VERSION " -> " + String(version));
+  otaStatus = "Updating " FW_VERSION " -> " + String(version);
+  Serial.println("OTA: " + otaStatus);
+  Mqtt_PublishUpdateState(true);
   InstallFirmware(binUrl);
 }
 
@@ -164,6 +170,10 @@ void Ota_Request() {
 
 String Ota_Status() {
   return otaStatus;
+}
+
+String Ota_LatestVersion() {
+  return latestVersion;
 }
 
 bool Ota_IsSigningEnabled() {

@@ -1,0 +1,95 @@
+{
+    // Commands for the project: Terminal > Run Task... (or Ctrl+Shift+P > "Tasks: Run Task")
+    // Ctrl+Shift+B runs the default build task.
+    // The PlatformIO executable is the one installed by the PlatformIO IDE extension.
+    "version": "2.0.0",
+    "linux": {
+        "options": { "env": { "PIO": "${env:HOME}/.platformio/penv/bin/pio", "PYTHONIOENCODING": "utf-8" } }
+    },
+    "osx": {
+        "options": { "env": { "PIO": "${env:HOME}/.platformio/penv/bin/pio", "PYTHONIOENCODING": "utf-8" } }
+    },
+    "windows": {
+        "options": { "env": { "PIO": "${env:USERPROFILE}\\.platformio\\penv\\Scripts\\pio.exe", "PYTHONIOENCODING": "utf-8" } }
+    },
+    "tasks": [
+        {
+            "label": "Build",
+            "detail": "Compiles the firmware, creates the .bin (serial) and the signed .ota.bin.gz (OTA)",
+            "type": "shell",
+            "command": "\"$PIO\" run -e sonoff_sv",
+            "windows": { "command": "& \"$env:PIO\" run -e sonoff_sv" },
+            "group": { "kind": "build", "isDefault": true },
+            "problemMatcher": ["$platformio"]
+        },
+        {
+            "label": "Flash (serial)",
+            "detail": "Builds and writes the firmware to the Sonoff connected to the USB-serial adapter (GPIO0 to GND at power on)",
+            "type": "shell",
+            "command": "\"$PIO\" run -e sonoff_sv -t upload",
+            "windows": { "command": "& \"$env:PIO\" run -e sonoff_sv -t upload" },
+            "group": "build",
+            "problemMatcher": ["$platformio"]
+        },
+        {
+            "label": "Serial monitor",
+            "detail": "Shows the Sonoff log (115200 baud). Ctrl+C to exit",
+            "type": "shell",
+            "command": "\"$PIO\" device monitor -e sonoff_sv",
+            "windows": { "command": "& \"$env:PIO\" device monitor -e sonoff_sv" },
+            "isBackground": false,
+            "presentation": { "panel": "dedicated", "focus": true },
+            "problemMatcher": []
+        },
+        {
+            "label": "Flash + Serial monitor",
+            "detail": "Writes the firmware and then opens the serial monitor",
+            "type": "shell",
+            "command": "\"$PIO\" run -e sonoff_sv -t upload -t monitor",
+            "windows": { "command": "& \"$env:PIO\" run -e sonoff_sv -t upload -t monitor" },
+            "presentation": { "panel": "dedicated", "focus": true },
+            "problemMatcher": ["$platformio"]
+        },
+        {
+            "label": "Unit test (PC)",
+            "detail": "Runs the unit tests on the PC, no hardware needed",
+            "type": "shell",
+            "command": "\"$PIO\" test -e native",
+            "windows": { "command": "& \"$env:PIO\" test -e native" },
+            "group": { "kind": "test", "isDefault": true },
+            "problemMatcher": ["$platformio"]
+        },
+        {
+            "label": "Unit test (Sonoff)",
+            "detail": "Runs the same unit tests on the Sonoff connected by serial (it overwrites the firmware: flash it again later)",
+            "type": "shell",
+            "command": "\"$PIO\" test -e sonoff_sv",
+            "windows": { "command": "& \"$env:PIO\" test -e sonoff_sv" },
+            "group": "test",
+            "problemMatcher": ["$platformio"]
+        },
+        {
+            "label": "Erase flash",
+            "detail": "Erases the whole flash of the Sonoff, settings included (first time, or in case of problems)",
+            "type": "shell",
+            "command": "\"$PIO\" run -e sonoff_sv -t erase",
+            "windows": { "command": "& \"$env:PIO\" run -e sonoff_sv -t erase" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Clean",
+            "detail": "Deletes the build files",
+            "type": "shell",
+            "command": "\"$PIO\" run -t clean",
+            "windows": { "command": "& \"$env:PIO\" run -t clean" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Tests + Build (check before a release)",
+            "detail": "Runs the unit tests and, if they pass, builds the firmware",
+            "dependsOrder": "sequence",
+            "dependsOn": ["Unit test (PC)", "Build"],
+            "problemMatcher": []
+        }
+    ]
+}

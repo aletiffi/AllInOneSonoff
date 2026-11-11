@@ -9,6 +9,7 @@
 #include "LedStrip.h"
 #include "Network.h"
 #include "Ota.h"
+#include "Mqtt.h"
 #include "HomePage.h"
 
 static ESP8266WebServer server(80);
@@ -36,7 +37,8 @@ static void HandleNotFound() {
 
 static void SendInfo() {
   // Used by the home page to show the controls of the current mode
-  StaticJsonDocument <512> doc;
+  // On the heap: the ESP8266 stack is only 4 KB
+  DynamicJsonDocument doc(1024);
   String msg_out;
 
   doc["mode"] = DeviceModeName();
@@ -46,6 +48,11 @@ static void SendInfo() {
   doc["ota_url"] = OtaUrl.Val;
   doc["ota_status"] = Ota_Status();
   doc["ota_signed"] = Ota_IsSigningEnabled();
+  doc["unique_id"] = Mqtt_UniqueId();
+  doc["mqtt_connected"] = Mqtt_IsConnected();
+  doc["mqtt_command"] = Mqtt_CommandTopic();
+  doc["mqtt_state"] = Mqtt_StateTopic();
+  doc["mqtt_base"] = Mqtt_BaseTopic();
   if (deviceMode == LEDSTRIP_MODE) {
     doc["color"] = LedStrip_ColorHex();
     doc["brightness"] = Brightness.Val;

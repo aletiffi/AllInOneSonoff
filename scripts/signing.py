@@ -1,16 +1,20 @@
-# PlatformIO extra script: firmware signing for OTA updates
+# PlatformIO extra script: firmware signing and compression for OTA updates
 #
 # keys/public.key   RSA public key, embedded in the firmware (committed)
-# keys/private.key  RSA private key, used to sign the .bin (NEVER committed, keep a backup!)
+# keys/private.key  RSA private key, used to sign the OTA image (NEVER committed, keep a backup!)
 #
 # - If no key exists (and not running in CI) a new 2048 bit key pair is generated.
 # - Before the build: $BUILD_DIR/generated/OtaSigningKey.h is created with the public key.
-# - After the build: if the private key exists, the signed firmware is written to
-#   $BUILD_DIR/firmware.signed.bin and AllInOneSonoff_v<FW_VERSION>.bin (project root).
-#   Signed format (ESP8266 core): <bin><signature><uint32 LE signature length>
+# - After the build (not for `pio test`), in the project root:
+#     AllInOneSonoff_v<FW_VERSION>.bin          plain firmware, for the first flash by serial
+#     AllInOneSonoff_v<FW_VERSION>.ota.bin.gz   gzip compressed + signed, to publish for the OTA
+#   The ESP8266 bootloader decompresses gzip images by itself (about 30% less space needed for the OTA).
+#   Signed format (ESP8266 core): <data><signature><uint32 LE signature length>, signed AFTER compression.
 #
 # Without public key the firmware accepts unsigned updates (OTA_SIGNING 0).
 
+import gzip
+import io
 import os
 import re
 import shutil
@@ -81,18 +85,16 @@ def firmware_version():
     return m.group(1) if m else "unknown"
 
 
-def sign_firmware(source, target, env):
-    bin_path = str(target[0])
-    if "test" in env.GetBuildType():
-        # pio test: the .bin is the test program, not a firmware to release
-        return
-    if not os.path.isfile(PRIVATE_KEY):
-        log("keys/private.key not found: firmware NOT signed (OTA updates to signed devices will be refused)")
-        return
-    with open(bin_path, "rb") as f:
-        data = f.read()
-    signature = run(["openssl", "dgst", "-sha256", "-sign", PRIVATE_KEY], input=data).stdout
+def gzip_bytes(data):
+    # mtime=0: same input -> same output (reproducible builds)
+    out = io.BytesIO()
+    with gzip.GzipFile(fileobj=out, mode="wb", compresslevel=9, mtime=0) as gz:
+        gz.write(data)
+    return out.getvalue()
 
+
+def sign_bytes(data):
+    signature = run(["openssl", "dgst", "-sha256", "-sign", PRIVATE_KEY], input=data).stdout
     # Sanity check with the public key embedded in the firmware
     with tempfile.NamedTemporaryFile(delete=False) as sig:
         sig.write(signature)
@@ -100,15 +102,30 @@ def sign_firmware(source, target, env):
         run(["openssl", "dgst", "-sha256", "-verify", PUBLIC_KEY, "-signature", sig.name], input=data)
     finally:
         os.unlink(sig.name)
+    return data + signature + struct.pack("<I", len(signature))
 
-    signed = data + signature + struct.pack("<I", len(signature))
-    signed_path = os.path.join(BUILD_DIR, "firmware.signed.bin")
-    with open(signed_path, "wb") as f:
-        f.write(signed)
-    release = os.path.join(PROJECT_DIR, "AllInOneSonoff_v%s.bin" % firmware_version())
-    shutil.copyfile(signed_path, release)
-    log("Signed firmware: %s (%d bytes)" % (os.path.relpath(release, PROJECT_DIR), len(signed)))
-    check_ota_space(len(signed))
+
+def sign_firmware(source, target, env):
+    bin_path = str(target[0])
+    if "test" in env.GetBuildType():
+        # pio test: the .bin is the test program, not a firmware to release
+        return
+    with open(bin_path, "rb") as f:
+        data = f.read()
+    name = "AllInOneSonoff_v%s" % firmware_version()
+    plain = os.path.join(PROJECT_DIR, name + ".bin")
+    shutil.copyfile(bin_path, plain)
+    log("Firmware for serial flash: %s (%d bytes)" % (os.path.relpath(plain, PROJECT_DIR), len(data)))
+
+    if not os.path.isfile(PRIVATE_KEY):
+        log("keys/private.key not found: OTA image NOT created (signed devices refuse unsigned updates)")
+        return
+    ota = sign_bytes(gzip_bytes(data))
+    ota_path = os.path.join(PROJECT_DIR, name + ".ota.bin.gz")
+    with open(ota_path, "wb") as f:
+        f.write(ota)
+    log("OTA image (gzip + signed): %s (%d bytes)" % (os.path.relpath(ota_path, PROJECT_DIR), len(ota)))
+    check_ota_space(len(data), len(ota))
 
 
 # eagle.flash.1m.ld: the sketch area ends at 0xFB000 (EEPROM sector). During an OTA the new firmware
@@ -117,9 +134,10 @@ SKETCH_AREA = 0xFB000
 SECTOR = 4096
 
 
-def check_ota_space(size):
-    running = (size + SECTOR - 1) // SECTOR * SECTOR
-    margin = SKETCH_AREA - running - size
+def check_ota_space(firmware_size, ota_size):
+    # The running firmware has about the same size of the new one
+    running = (firmware_size + SECTOR - 1) // SECTOR * SECTOR
+    margin = SKETCH_AREA - running - ota_size
     if margin < 0:
         log("WARNING: firmware too big for OTA (%d bytes missing): it can only be flashed by serial" % -margin)
     else:

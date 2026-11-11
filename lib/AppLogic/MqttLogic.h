@@ -13,6 +13,7 @@
 struct LightCommand {
   bool hasState;
   bool on;
+  bool toggle;
   bool hasBrightness;
   uint8_t brightness;
   bool hasColor;
@@ -29,11 +30,13 @@ struct LightState {
   int effect;
 };
 
-// {"state":"ON","brightness":120,"color":{"r":255,"g":0,"b":80},"effect":"Random"}
-// In Switch mode only "state" is used. Returns false if the json is not valid.
+// Json (Home Assistant):  {"state":"ON","brightness":120,"color":{"r":255,"g":0,"b":80},"effect":"Random"}
+// Plain text (any mode):  ON, OFF, TOGGLE (also lowercase)
+// In Switch mode only "state" is used. Returns false if the payload is not valid.
 bool mqtt_parse_command(const char* payload, size_t length, bool ledstripMode, LightCommand* cmd);
 
-// State to publish; returns the message length (0 if out is too small)
+// State to publish; returns the message length (0 if out is too small).
+// LedStrip on: {"state":"ON","color_mode":"rgb","brightness":85,"effect":"Solid","color":{"r":255,"g":0,"b":80}}
 size_t mqtt_build_state(const LightState* state, char* out, size_t outSize);
 
 #endif

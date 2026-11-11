@@ -1,0 +1,94 @@
+# Home Assistant - MANUAL configuration of AllInOneSonoff (configuration.yaml)
+#
+# NOT needed with MQTT discovery (default): the device appears by itself in
+# Settings > Devices & services > MQTT. Use this file only if MQTT discovery is
+# disabled in Home Assistant, otherwise the entities are duplicated.
+#
+# Replace "cucina" with the hostname of your device (lowercase, spaces -> "_")
+# and "sonoff_1a2b3c" with the id shown in the device home page.
+# Current format (Home Assistant 2022.12+): everything under the "mqtt:" key.
+# The old format "light: - platform: mqtt" is no longer supported.
+
+mqtt:
+  # ---------------------------------------------------------------------------
+  # Switch mode: relay (light bulb, socket...)
+  # ---------------------------------------------------------------------------
+  - switch:
+      name: "Cucina"
+      unique_id: sonoff_1a2b3c_switch
+      command_topic: "sonoff/cucina/set"
+      state_topic: "sonoff/cucina/state"
+      value_template: "{{ value_json.state }}"
+      payload_on: "ON"
+      payload_off: "OFF"
+      availability_topic: "sonoff/cucina/availability"
+      device_class: switch
+
+  # ---------------------------------------------------------------------------
+  # LedStrip mode: rgb light with brightness and effects (json schema)
+  # ---------------------------------------------------------------------------
+  - light:
+      name: "Led cucina"
+      unique_id: sonoff_1a2b3c_light
+      schema: json
+      command_topic: "sonoff/cucina/set"
+      state_topic: "sonoff/cucina/state"
+      availability_topic: "sonoff/cucina/availability"
+      supported_color_modes: ["rgb"]
+      brightness: true
+      effect: true
+      effect_list: ["Solid", "Random"]
+      flash: false
+      transition: false
+
+  # ---------------------------------------------------------------------------
+  # Both modes: buttons, firmware update, diagnostic sensors
+  # ---------------------------------------------------------------------------
+  - button:
+      name: "Cucina restart"
+      unique_id: sonoff_1a2b3c_restart
+      command_topic: "sonoff/cucina/action"
+      payload_press: "restart"
+      availability_topic: "sonoff/cucina/availability"
+      device_class: restart
+      entity_category: config
+
+  - button:
+      name: "Cucina check firmware update"
+      unique_id: sonoff_1a2b3c_check_update
+      command_topic: "sonoff/cucina/action"
+      payload_press: "check_update"
+      availability_topic: "sonoff/cucina/availability"
+      device_class: update
+      entity_category: diagnostic
+
+  - update:
+      name: "Cucina firmware"
+      unique_id: sonoff_1a2b3c_firmware
+      title: "AllInOneSonoff"
+      state_topic: "sonoff/cucina/update"
+      command_topic: "sonoff/cucina/action"
+      payload_install: "install"
+      availability_topic: "sonoff/cucina/availability"
+      device_class: firmware
+      entity_category: config
+
+  - sensor:
+      name: "Cucina WiFi signal"
+      unique_id: sonoff_1a2b3c_rssi
+      state_topic: "sonoff/cucina/telemetry"
+      value_template: "{{ value_json.rssi }}"
+      unit_of_measurement: "dBm"
+      device_class: signal_strength
+      state_class: measurement
+      availability_topic: "sonoff/cucina/availability"
+      entity_category: diagnostic
+
+  - sensor:
+      name: "Cucina IP address"
+      unique_id: sonoff_1a2b3c_ip
+      state_topic: "sonoff/cucina/telemetry"
+      value_template: "{{ value_json.ip }}"
+      icon: mdi:ip-network
+      availability_topic: "sonoff/cucina/availability"
+      entity_category: diagnostic

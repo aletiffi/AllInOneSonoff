@@ -62,9 +62,36 @@ static void test_ledstrip_partial_and_invalid_fields() {
   TEST_ASSERT_FALSE(cmd.hasBrightness);
 }
 
+static void test_plain_text_commands() {
+  LightCommand cmd;
+  TEST_ASSERT_TRUE(Parse("ON", false, &cmd));
+  TEST_ASSERT_TRUE(cmd.hasState && cmd.on);
+  TEST_ASSERT_TRUE(Parse("off", true, &cmd));
+  TEST_ASSERT_TRUE(cmd.hasState);
+  TEST_ASSERT_FALSE(cmd.on);
+  TEST_ASSERT_TRUE(Parse("TOGGLE", false, &cmd));
+  TEST_ASSERT_TRUE(cmd.toggle);
+  TEST_ASSERT_FALSE(cmd.hasState);
+  TEST_ASSERT_FALSE(Parse("ONN", false, &cmd));
+  TEST_ASSERT_FALSE(Parse("1", false, &cmd));
+}
+
+static void test_home_assistant_commands() {
+  // Messages sent by the Home Assistant json light
+  LightCommand cmd;
+  TEST_ASSERT_TRUE(Parse("{\"state\":\"ON\",\"brightness\":128}", true, &cmd));
+  TEST_ASSERT_TRUE(cmd.on && cmd.hasBrightness && !cmd.hasColor);
+  TEST_ASSERT_TRUE(Parse("{\"state\":\"ON\",\"color\":{\"r\":10,\"g\":20,\"b\":30}}", true, &cmd));
+  TEST_ASSERT_TRUE(cmd.on && cmd.hasColor && !cmd.hasBrightness);
+  TEST_ASSERT_TRUE(Parse("{\"state\":\"ON\",\"effect\":\"Random\"}", true, &cmd));
+  TEST_ASSERT_TRUE(cmd.on && cmd.hasEffect);
+  TEST_ASSERT_TRUE(Parse("{\"state\":\"OFF\"}", true, &cmd));
+  TEST_ASSERT_TRUE(cmd.hasState && !cmd.on);
+}
+
 static void test_invalid_json() {
   LightCommand cmd;
-  TEST_ASSERT_FALSE(Parse("ON", false, &cmd));
+  TEST_ASSERT_FALSE(Parse("ONE", false, &cmd));
   TEST_ASSERT_FALSE(Parse("{\"state\":", true, &cmd));
   TEST_ASSERT_FALSE(Parse("", true, &cmd));
   TEST_ASSERT_FALSE(cmd.hasState);
@@ -86,7 +113,7 @@ static void test_build_state() {
 
   LightState led = {true, true, 85, {255, 0, 80}, EFFECT_RANDOM};
   mqtt_build_state(&led, out, sizeof(out));
-  TEST_ASSERT_EQUAL_STRING("{\"state\":\"ON\",\"brightness\":85,\"effect\":\"Random\",\"color\":{\"r\":255,\"g\":0,\"b\":80}}", out);
+  TEST_ASSERT_EQUAL_STRING("{\"state\":\"ON\",\"color_mode\":\"rgb\",\"brightness\":85,\"effect\":\"Random\",\"color\":{\"r\":255,\"g\":0,\"b\":80}}", out);
 
   // Ledstrip off: only the state
   led.on = false;
@@ -118,6 +145,8 @@ int runUnityTests() {
   RUN_TEST(test_switch_mode_ignores_light_fields);
   RUN_TEST(test_ledstrip_full_command);
   RUN_TEST(test_ledstrip_partial_and_invalid_fields);
+  RUN_TEST(test_plain_text_commands);
+  RUN_TEST(test_home_assistant_commands);
   RUN_TEST(test_invalid_json);
   RUN_TEST(test_build_state);
   RUN_TEST(test_build_state_round_trip);
