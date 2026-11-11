@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Unit tests (PC)
+        run: pio test -e native
+
+      # keys/private.key is not in the repository: the firmware is built with the
+      # public key (OTA signature check enabled) but the .bin is not signed
+      - name: Build firmware
+        run: pio run -e sonoff_sv
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-unsigned
+          path: .pio/build/sonoff_sv/firmware.bin

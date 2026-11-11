@@ -195,7 +195,8 @@ const char webPage[] PROGMEM = R"=====(
             document.getElementById("Device_Mode").value = info.mode;
             document.getElementById("title").innerText = info.hostname;
             document.getElementById("info").innerText = info.mode + " mode - state " + info.state + " - fw " + info.version;
-            document.getElementById("ota_status").innerText = "Update: " + info.ota_status;
+            document.getElementById("ota_status").innerText = "Update: " + info.ota_status +
+              (info.ota_signed ? " (signed firmware only)" : " (WARNING: signature check disabled)");
             if (info.ota_url != "") {
               document.getElementById("OTA_URL").placeholder = info.ota_url;
             }

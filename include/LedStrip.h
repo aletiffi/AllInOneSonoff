@@ -11,6 +11,7 @@ void LedStrip_Off();
 bool LedStrip_SetColorHex(const String& color);
 String LedStrip_ColorHex();
 bool LedStrip_SelectEffect(const String& effect);
+int LedStrip_Effect();
 String LedStrip_EffectName();
 
 #endif

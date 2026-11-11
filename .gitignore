@@ -3,3 +3,6 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+
+# Firmware signing private key: NEVER commit it, keep a backup elsewhere
+keys/private.key

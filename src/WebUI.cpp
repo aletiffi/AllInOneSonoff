@@ -1,5 +1,7 @@
 #include <ESP8266WebServer.h>
 #include <ArduinoJson.h>
+#include <SettingsLogic.h>
+#include <MqttLogic.h>
 #include "WebUI.h"
 #include "Config.h"
 #include "Settings.h"
@@ -43,6 +45,7 @@ static void SendInfo() {
   doc["state"] = IsOn() ? ON_PAYLOAD : OFF_PAYLOAD;
   doc["ota_url"] = OtaUrl.Val;
   doc["ota_status"] = Ota_Status();
+  doc["ota_signed"] = Ota_IsSigningEnabled();
   if (deviceMode == LEDSTRIP_MODE) {
     doc["color"] = LedStrip_ColorHex();
     doc["brightness"] = Brightness.Val;
@@ -104,27 +107,32 @@ static void ChangeSettings() {
   JsonObject root = doc.as<JsonObject>();
   for (JsonPair kv : root) {
     for (byte i = 0; i < NUM_WIFI_SETTINGS; i++) {
-      if (strcmp(kv.key().c_str(), WifiSettings[i]->Name.c_str()) == 0) {
-        String val = kv.value().as<String>();
-        val.trim();
-        if (WifiSettings[i] == &OtaUrl && val == "-") {
-          // "-" deletes the update url
-          OtaUrl.Val = "";
-        } else if (val.length() > 0) {
-          WifiSettings[i]->Val = val.substring(0, WifiSettings[i] == &OtaUrl ? MAX_LENGTH_URL : MAX_LENGTH_SETTING);
+      if (strcmp(kv.key().c_str(), WifiSettings[i]->Name.c_str()) == 0 && kv.value().is<const char*>()) {
+        bool isUrl = WifiSettings[i] == &OtaUrl;
+        char val[MAX_LENGTH_URL + 1];
+        // "-" deletes the update url, empty values keep the saved ones
+        switch (settings_sanitize(kv.value().as<const char*>(), isUrl, isUrl ? MAX_LENGTH_URL : MAX_LENGTH_SETTING, val, sizeof(val))) {
+          case SETTING_SET:
+            WifiSettings[i]->Val = val;
+            break;
+          case SETTING_CLEAR:
+            WifiSettings[i]->Val = "";
+            break;
+          case SETTING_KEEP:
+            break;
         }
       }
     }
   }
   // Only known modes are accepted
-  if (DeviceMode.Val != MODE_SWITCH && DeviceMode.Val != MODE_LEDSTRIP) {
+  if (!settings_is_known_mode(DeviceMode.Val.c_str())) {
     DeviceMode.Val = oldMode;
   }
 
   SaveSettingsInEeprom();
   server.send(200, "text/plain", "Settings saved");
 
-  if (DeviceMode.Val != oldMode && !(oldMode == "" && DeviceMode.Val == MODE_SWITCH)) {
+  if (settings_mode_change_requires_restart(oldMode.c_str(), DeviceMode.Val.c_str())) {
     // GPIO14 changes function: a restart is required
     Serial.println("Device mode changed to " + DeviceMode.Val);
     Switch_Off();

@@ -1,6 +1,6 @@
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
-#include <ArduinoJson.h>
+#include <MqttLogic.h>
 #include "Mqtt.h"
 #include "Config.h"
 #include "Settings.h"
@@ -13,56 +13,38 @@ static PubSubClient client(espClient);
 static unsigned long lastMqttCheckConn = 0;
 
 static void Callback(char *topic, byte *payload, unsigned int length) {
-  StaticJsonDocument <JSON_MSG_LENGTH> doc;
   Serial.print("Payload recived: ");
-  for (unsigned int i = 0; i < length; i++) {
-    Serial.print(char(payload[i]));
-  }
+  Serial.write(payload, length);
   Serial.println("");
 
-  if ((String(topic) == MqttSubTopic.Val) && (length > 5)) {
-    String state;
-    Serial.println("Command/s on payload: ");
-    if (deserializeJson(doc, payload, length)) {
-      Serial.println("  - invalid json");
-      return;
-    }
-    JsonObject root = doc.as<JsonObject>();
-
-    for (JsonPair kv : root) {
-      String key = kv.key().c_str();
-
-      if (key.equals("state")) {
-        state = doc["state"].as<String>();
-        Serial.println("  - state = " + state);
-
-      } else if (deviceMode == LEDSTRIP_MODE && key.equals("brightness")) {
-        Brightness.Val = doc["brightness"];
-        Serial.println("  - brightness = " + String(Brightness.Val));
-
-      } else if (deviceMode == LEDSTRIP_MODE && key.equals("color")) {
-        JsonObject color = doc["color"];
-        Red.Val = color["r"];
-        Green.Val = color["g"];
-        Blue.Val = color["b"];
-        Serial.println("  - color = R:" + String(Red.Val) + " G:" + String(Green.Val) + " B:" + String(Blue.Val));
-
-      } else if (deviceMode == LEDSTRIP_MODE && key.equals("effect")) {
-        String effect = doc["effect"].as<String>();
-        if (LedStrip_SelectEffect(effect)) {
-          Serial.println("  - effect = " + effect);
-        }
-
-      } else {
-        Serial.println("  - key ignored = " + key);
-      }
-    }
-
-    if (state.equals(OFF_PAYLOAD)) {
-      Switch_Off();
-    }
-    if (state.equals(ON_PAYLOAD)) {
+  if (MqttSubTopic.Val != topic) {
+    return;
+  }
+  LightCommand cmd;
+  if (!mqtt_parse_command((const char*) payload, length, deviceMode == LEDSTRIP_MODE, &cmd)) {
+    Serial.println("  - invalid json");
+    return;
+  }
+  if (cmd.hasBrightness) {
+    Brightness.Val = cmd.brightness;
+    Serial.println("  - brightness = " + String(Brightness.Val));
+  }
+  if (cmd.hasColor) {
+    Red.Val = cmd.color.r;
+    Green.Val = cmd.color.g;
+    Blue.Val = cmd.color.b;
+    Serial.println("  - color = " + LedStrip_ColorHex());
+  }
+  if (cmd.hasEffect) {
+    LedStrip_SelectEffect(effect_name(cmd.effect));
+    Serial.println("  - effect = " + LedStrip_EffectName());
+  }
+  if (cmd.hasState) {
+    Serial.println(String("  - state = ") + (cmd.on ? ON_PAYLOAD : OFF_PAYLOAD));
+    if (cmd.on) {
       Switch_On();
+    } else {
+      Switch_Off();
     }
   }
 }
@@ -100,23 +82,13 @@ void PublishState() {
   if (!deviceConnected || !client.connected()) {
     return;
   }
-  StaticJsonDocument <JSON_MSG_LENGTH> doc;
   char msg_out[JSON_MSG_LENGTH];
+  LightState state = {IsOn(), deviceMode == LEDSTRIP_MODE, Brightness.Val, {Red.Val, Green.Val, Blue.Val}, LedStrip_Effect()};
 
-  if (!IsOn()) {
-    doc["state"] = OFF_PAYLOAD;
-  } else {
-    doc["state"] = ON_PAYLOAD;
-    if (deviceMode == LEDSTRIP_MODE) {
-      doc["brightness"] = Brightness.Val;
-      doc["effect"] = LedStrip_EffectName();
-      JsonObject color = doc.createNestedObject("color");
-      color["r"] = Red.Val;
-      color["g"] = Green.Val;
-      color["b"] = Blue.Val;
-    }
+  if (mqtt_build_state(&state, msg_out, sizeof(msg_out)) == 0) {
+    Serial.println("Message too long");
+    return;
   }
-  serializeJson(doc, msg_out);
   if (client.publish(MqttPubTopic.Val.c_str(), msg_out)) {
     Serial.print("Message published: ");
     Serial.println(msg_out);

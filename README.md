@@ -60,7 +60,7 @@ In the settings enter the url of a small json **manifest** (http or https):
 
 ```json
 {
-  "version": "45.2.0.0",
+  "version": "45.3.0.0",
   "url": "https://drive.google.com/file/d/<BIN_FILE_ID>/view?usp=sharing"
 }
 ```
@@ -73,7 +73,14 @@ Using Google Drive:
 3. put the share link of the `.bin` in the manifest and the share link of the manifest in the device settings. Share links (`https://drive.google.com/file/d/<ID>/view...`) are converted automatically to direct download links;
 4. to release a new firmware, upload the new `.bin` and the updated manifest as **new versions** of the same files (Drive: *Manage versions*), so the links don't change.
 
-The same firmware works in both modes, so one manifest can be used by all the devices; a different url per device allows updating them separately (e.g. a test device first). Any other web server works too (GitHub releases, a local nginx...), provided that it reports the `Content-Length` of the `.bin`. The server certificate is not verified. Enter `-` in the url field to delete the url.
+The same firmware works in both modes, so one manifest can be used by all the devices; a different url per device allows updating them separately (e.g. a test device first). Any other web server works too (GitHub releases, a local nginx...), provided that it reports the `Content-Length` of the `.bin`. Enter `-` in the url field to delete the url.
+
+**Signed firmware**: https downloads are encrypted, but the server certificate is not verified (the device has no root CAs nor a reliable clock). The authenticity is guaranteed by the firmware **signature** instead (RSA 2048 + SHA256, ESP8266 core `Updater`):
+
+- `keys/public.key` is embedded in the firmware, `keys/private.key` signs the `.bin`. They are generated automatically by `scripts/signing.py` at the first build if missing.
+- **`keys/private.key` is not committed (`.gitignore`): keep a backup in a safe place.** Without it the devices can only be updated by serial.
+- `pio run` writes the signed firmware to `AllInOneSonoff_v<FW_VERSION>.bin`: upload **this** file for the OTA. Unsigned, damaged or differently signed firmwares are refused and the device keeps running the current one (the reason is shown in the home page).
+- The build also prints the free space margin for the OTA.
 
 The firmware uses the whole 1MB flash without filesystem (`eagle.flash.1m.ld`) to leave space for the update: devices running an older firmware must be flashed once by serial.
 
@@ -92,6 +99,15 @@ While holding the Sonoff button, the LED will flash once per second. Based on th
 - 9:  Read all EEPROM (for debug purpose)
 - 10: Sonoff restart
 
+**Unit tests**
+-----------------------------------------
+The pure logic (version comparison, Google Drive links, manifest, colors and effects, MQTT messages, settings validation) is in `lib/AppLogic`, without Arduino dependencies, and is covered by the Unity tests in `test/`:
+
+- `pio test -e native`: on the PC, in a few seconds, no hardware needed
+- `pio test -e sonoff_sv`: the same tests on the Sonoff connected by serial
+
+GitHub Actions (`.github/workflows/ci.yml`) runs the PC tests and builds the firmware at every push.
+
 **Build**
 -----------------------------------------
 The project is built with PlatformIO (`pio run`, `pio run -t upload`). The DigiOut, ReadInput and StoreStrings libraries are included in the `lib` folder; ArduinoJson, PubSubClient and FastLED are downloaded automatically.
@@ -107,6 +123,7 @@ The project is built with PlatformIO (`pio run`, `pio run -t upload`). The DigiO
 | Network    | Wifi, access point, mDNS, connection check |
 | Mqtt       | MQTT client, commands and state |
 | WebUI      | Web server, home page (`HomePage.h`) and http api |
-| Ota        | Firmware update from json manifest |
+| Ota        | Firmware update from json manifest, signature check |
+| `lib/AppLogic` | OtaLogic, ColorLogic, MqttLogic, SettingsLogic: pure logic, unit tested |
 
 Within this repository there is the .bin file to be installed in the Sonoff.

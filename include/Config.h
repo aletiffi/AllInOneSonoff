@@ -4,7 +4,7 @@
 //----------------------------------------------------------------------------
 // Firmware
 //----------------------------------------------------------------------------
-#define FW_VERSION                "45.2.0.0"
+#define FW_VERSION                "45.3.0.0"
 #define DEFAULT_AP_NAME           "SonoffAllInOne"
 //----------------------------------------------------------------------------
 // Sonoff r1 pins
@@ -41,12 +41,8 @@
 #define MAX_LENGTH_SETTING        20
 #define MAX_LENGTH_URL            150
 //----------------------------------------------------------------------------
-// Payloads
+// Json messages (payloads and mode names are in lib/AppLogic)
 //----------------------------------------------------------------------------
-#define ON_PAYLOAD                "ON"
-#define OFF_PAYLOAD               "OFF"
-#define MODE_SWITCH               "Switch"
-#define MODE_LEDSTRIP             "LedStrip"
 #define JSON_MSG_LENGTH           256
 //----------------------------------------------------------------------------
 

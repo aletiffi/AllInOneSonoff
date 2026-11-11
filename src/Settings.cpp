@@ -45,18 +45,6 @@ Setting* StateSettings[NUM_STATE_SETTINGS] = {
   &Blue,
   &Brightness};
 
-static bool IsByteNumber(const String& val) {
-  if (val.length() == 0 || val.length() > 3) {
-    return false;
-  }
-  for (unsigned int i = 0; i < val.length(); i++) {
-    if (!isDigit(val.charAt(i))) {
-      return false;
-    }
-  }
-  return val.toInt() <= 255;
-}
-
 void Settings_Begin() {
   if (!mem.isReady()) {
     mem.clear();
@@ -64,7 +52,7 @@ void Settings_Begin() {
 }
 
 const char* DeviceModeName() {
-  return deviceMode == LEDSTRIP_MODE ? MODE_LEDSTRIP : MODE_SWITCH;
+  return settings_mode_name(deviceMode);
 }
 
 void SaveSettingsInEeprom() {
@@ -89,7 +77,7 @@ void LoadSettingsFromEeprom() {
   wifiConfigured = Ssid.Val.length() > 0 && Password.Val.length() > 0;
 
   // Empty or unknown mode (e.g. EEPROM written by an old firmware) -> Switch
-  deviceMode = DeviceMode.Val == MODE_LEDSTRIP ? LEDSTRIP_MODE : SWITCH_MODE;
+  deviceMode = settings_parse_mode(DeviceMode.Val.c_str());
 }
 
 void SaveStateInEeprom() {
@@ -105,7 +93,7 @@ void LoadStateFromEeprom() {
   for (byte i = 0; i < NUM_STATE_SETTINGS; i++) {
     String val = mem.read_pt2(mem.getLastReadedByte2());
     // Values never saved (or not valid) keep their default
-    if (IsByteNumber(val)) {
+    if (settings_is_byte_number(val.c_str())) {
       StateSettings[i]->Val = val.toInt();
     }
     Serial.print(StateSettings[i]->Name + ": " + StateSettings[i]->Val + " ");

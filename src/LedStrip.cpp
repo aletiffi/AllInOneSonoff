@@ -1,28 +1,20 @@
 #include <FastLED.h>
+#include <ColorLogic.h>
 #include "LedStrip.h"
 #include "Config.h"
 #include "Settings.h"
 #include "Device.h"
 #include "Mqtt.h"
 
-#define RGB_COMBO_NUM             9
-#define RGB_EFFECTS_NUM           2
-#define EFFECT_SOLID              0
-#define EFFECT_RANDOM             1
-
-static const char* EffectNames[RGB_EFFECTS_NUM] = {"Solid", "Random"};
-
-// Random effect: steps 0,3,6 -> red; 1,4,7 -> green; 2,5,8 -> blue
-static const byte RandomTargets[RGB_COMBO_NUM] = {
-  MAX_RGB_VAL, MAX_RGB_VAL, MAX_RGB_VAL,
-  0, 0, 0,
-  MAX_RGB_VAL / 2, MAX_RGB_VAL / 2, MAX_RGB_VAL / 2};
-
 static CRGB leds[NUM_LEDS];
 static bool ledStripStarted          = false;
-static byte effectSelected           = EFFECT_SOLID;
-static byte randomEffectStep         = 0;
+static int effectSelected            = EFFECT_SOLID;
+static uint8_t randomEffectStep      = 0;
 static unsigned long lastTimeRgbPlay = 0;
+
+static uint8_t RandomByte(uint8_t n) {
+  return (uint8_t) random(0, n);
+}
 
 static void SetLedStrip(byte red, byte green, byte blue, byte brightness) {
   if (!ledStripStarted) {
@@ -37,47 +29,16 @@ static void SetLedStrip(byte red, byte green, byte blue, byte brightness) {
   }
 }
 
-static byte RandomEffectStepSelector() {
-  byte randSelection = random(0, RGB_COMBO_NUM);
-  // Verifies that not all channels are disabled
-  while ((RandomTargets[randSelection] == 0) && ((Red.Val == 0 && Green.Val == 0) || (Red.Val == 0 && Blue.Val == 0) || (Blue.Val == 0 && Green.Val == 0))) {
-    randSelection = random(0, RGB_COMBO_NUM);
-  }
-  return randSelection;
-}
-
-static byte RgbChannelManager(byte channelVal, byte targetVal, byte incStep) {
-  if (channelVal < targetVal) {
-    return (targetVal - channelVal) < incStep ? targetVal : channelVal + incStep;
-  } else if (channelVal > targetVal) {
-    return (channelVal - targetVal) < incStep ? targetVal : channelVal - incStep;
-  }
-  // Target reached: choose the next step
-  randomEffectStep = RandomEffectStepSelector();
-  return channelVal;
-}
-
 static void RgbEffectPlay() {
-  if (effectSelected != EFFECT_RANDOM || randomEffectStep >= RGB_COMBO_NUM) {
+  if (effectSelected != EFFECT_RANDOM) {
     return;
   }
-  byte target = RandomTargets[randomEffectStep];
-  switch (randomEffectStep % 3) {
-    case 0:
-      Red.Val = RgbChannelManager(Red.Val, target, INCREMENT_STEP);
-      break;
-    case 1:
-      Green.Val = RgbChannelManager(Green.Val, target, INCREMENT_STEP);
-      break;
-    case 2:
-      Blue.Val = RgbChannelManager(Blue.Val, target, INCREMENT_STEP);
-      break;
-  }
+  Rgb color = {Red.Val, Green.Val, Blue.Val};
+  random_effect_tick(&randomEffectStep, &color, INCREMENT_STEP, RandomByte);
+  Red.Val = color.r;
+  Green.Val = color.g;
+  Blue.Val = color.b;
   SetLedStrip(Red.Val, Green.Val, Blue.Val, Brightness.Val);
-}
-
-static byte HexString2Byte(const String& val) {
-  return (byte) strtol(val.c_str(), NULL, 16);
 }
 
 void LedStrip_Begin() {
@@ -111,31 +72,35 @@ void LedStrip_Off() {
 }
 
 bool LedStrip_SetColorHex(const String& color) {
-  if (color.length() != 7 || color.charAt(0) != '#') {
+  Rgb rgb;
+  if (!color_from_hex(color.c_str(), &rgb)) {
     return false;
   }
-  Red.Val = HexString2Byte(color.substring(1, 3));
-  Green.Val = HexString2Byte(color.substring(3, 5));
-  Blue.Val = HexString2Byte(color.substring(5, 7));
+  Red.Val = rgb.r;
+  Green.Val = rgb.g;
+  Blue.Val = rgb.b;
   return true;
 }
 
 String LedStrip_ColorHex() {
   char color[8];
-  snprintf(color, sizeof(color), "#%02x%02x%02x", Red.Val, Green.Val, Blue.Val);
+  color_to_hex({Red.Val, Green.Val, Blue.Val}, color);
   return String(color);
 }
 
 bool LedStrip_SelectEffect(const String& effect) {
-  for (byte i = 0; i < RGB_EFFECTS_NUM; i++) {
-    if (effect.equals(EffectNames[i])) {
-      effectSelected = i;
-      return true;
-    }
+  int e = effect_from_name(effect.c_str());
+  if (e < 0) {
+    return false;
   }
-  return false;
+  effectSelected = e;
+  return true;
+}
+
+int LedStrip_Effect() {
+  return effectSelected;
 }
 
 String LedStrip_EffectName() {
-  return EffectNames[effectSelected];
+  return effect_name(effectSelected);
 }

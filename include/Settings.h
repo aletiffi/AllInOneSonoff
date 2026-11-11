@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include <StoreStrings.h>
+#include <SettingsLogic.h>
 
 #define NUM_WIFI_SETTINGS         10
 #define NUM_STATE_SETTINGS        5
@@ -16,8 +17,6 @@ struct Setting {
   String Name;
   byte Val;
 };
-
-enum DeviceModes { SWITCH_MODE, LEDSTRIP_MODE };
 
 // Settings saved in the first EEPROM partition (order = EEPROM layout)
 extern WifiSetup Hostname;
