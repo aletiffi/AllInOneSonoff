@@ -9,17 +9,33 @@
 
 bool deviceConnected                 = false;
 
+// The ESP8266 has one radio: the access point works on the channel of the station.
+// While the SDK searches the network it scans all the channels and the access point is unusable,
+// so the automatic reconnection (a scan every second) is disabled: short attempts every
+// T_WIFI_RETRY, postponed while a device is connected to the access point.
+#define T_WIFI_RETRY              30000
+#define T_WIFI_ATTEMPT            15000
+
 static MDNSResponder mdns;
 static unsigned long lastTimeCheckConn = 0;
+static unsigned long lastWifiRetry     = 0;
+static unsigned long wifiAttemptStart  = 0;
+static bool wifiAttemptInProgress      = false;
 
 void Connection_Manager() {
   Serial.println("Connection process started");
+  // mDNS joins the multicast group on both interfaces: it must leave it before the access point
+  // interface is removed, or the lwIP IGMP timer sends on the removed interface (crash, exception 0)
+  mdns.close();
   WiFi.softAPdisconnect(true);
   WiFi.disconnect();
   delay(T_200MS);
   LoadSettingsFromEeprom();
 
   WiFi.mode(WIFI_AP_STA);
+  // Credentials only in RAM (no flash write at each attempt), reconnection managed by Network_Loop
+  WiFi.persistent(false);
+  WiFi.setAutoReconnect(false);
 
   if (wifiConfigured) {
     if (GetWifiPower(Ssid.Val)) {
@@ -66,26 +82,71 @@ void Connection_Manager() {
 
   // Reset last connection time
   lastTimeCheckConn = millis();
+  lastWifiRetry = millis();
+  wifiAttemptInProgress = false;
+}
+
+// Station not connected: short connection attempts, the access point stays usable in between
+static void WifiReconnect() {
+  if (deviceConnected) {
+    deviceConnected = false;
+    Serial.println("WiFi connection lost (status " + String(WiFi.status()) + ")");
+    Led.Off();
+    // First attempt in a few seconds
+    lastWifiRetry = millis() - T_WIFI_RETRY + T_5S;
+  }
+  if (wifiAttemptInProgress) {
+    if (millis() - wifiAttemptStart > T_WIFI_ATTEMPT) {
+      // Stops the search (credentials kept), the access point gets its channel back
+      WiFi.disconnect(false, false);
+      wifiAttemptInProgress = false;
+      lastWifiRetry = millis();
+      Serial.println("WiFi: " + Ssid.Val + " not reachable, next attempt in " + String(T_WIFI_RETRY / 1000) + " s");
+    }
+    return;
+  }
+  if (millis() - lastWifiRetry > T_WIFI_RETRY) {
+    lastWifiRetry = millis();
+    if (WiFi.softAPgetStationNum() > 0) {
+      // Someone is using the settings page: the attempt would disconnect them
+      Serial.println("WiFi: attempt postponed, a device is connected to the access point");
+      return;
+    }
+    Serial.println("WiFi: connecting to " + Ssid.Val);
+    WiFi.begin(Ssid.Val, Password.Val);
+    wifiAttemptInProgress = true;
+    wifiAttemptStart = millis();
+  }
 }
 
 void Network_Loop() {
   mdns.update();
 
-  // Connection check
-  if (wifiConfigured && millis() - lastTimeCheckConn > T_5MIN) {
+  if (!wifiConfigured) {
+    return;
+  }
+  if (WiFi.status() != WL_CONNECTED) {
+    WifiReconnect();
+    return;
+  }
+  if (!deviceConnected) {
+    // Connected again (MQTT reconnects by itself in Mqtt_Loop)
+    wifiAttemptInProgress = false;
+    deviceConnected = true;
+    Serial.println("WiFi connected again, IP: " + WiFi.localIP().toString());
+    Led.On();
+  }
+
+  // Periodic connection check
+  if (millis() - lastTimeCheckConn > T_5MIN) {
     Serial.print("Connection check... ");
     Led.Off();
     delay(T_200MS);
     lastTimeCheckConn = millis();
-
-    if (WiFi.status() != WL_CONNECTED) {
-      Connection_Manager();
-    } else {
-      Serial.println("OK");
-      PublishState();
-      // Turns on the LED for network connection confirmation
-      Led.On();
-    }
+    Serial.println("OK");
+    PublishState();
+    // Turns on the LED for network connection confirmation
+    Led.On();
   }
 }
 
