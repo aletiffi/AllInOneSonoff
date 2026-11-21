@@ -4,6 +4,7 @@
 // Firmware update logic, independent from Arduino (unit tested on PC)
 
 #include <stddef.h>
+#include <stdint.h>
 
 enum OtaManifestResult {
   OTA_MANIFEST_OK,
@@ -37,5 +38,41 @@ bool ota_is_disabled(const char* setting);
 
 // Manifest: {"version": "45.2.0.0", "url": "https://..."}; the url is normalized
 OtaManifestResult ota_parse_manifest(const char* json, char* version, size_t versionSize, char* url, size_t urlSize);
+
+// --- Redirects ---
+// The ESP8266 HTTPClient stores each response header line in a String growing a few bytes at a time:
+// github.com sends a ~4 KB Content-Security-Policy header that, with the TLS buffers allocated,
+// runs out of memory and the Location header can get lost (-> "HTTP 302").
+// These functions follow the redirects with fixed buffers, reading only the status and Location.
+
+// http(s)://host[:port][/path] -> host, port (default 80/443), https and path (pointer into url, "" if missing).
+// False if the url is not valid or host doesn't fit
+bool ota_split_url(const char* url, bool* https, char* host, size_t hostSize, uint16_t* port, const char** path);
+
+// 301, 302, 303, 307, 308
+bool ota_is_redirect(int code);
+
+// Streaming parser of an HTTP response header, fed one byte at a time: memory used is fixed,
+// lines too long (other than Location) are skipped
+struct OtaHeaderParser {
+  int state;
+  char line[24];          // status line start or header name
+  size_t lineLen;
+  char* location;         // buffer for the Location value
+  size_t locationSize;
+  size_t locationLen;
+  int status;             // HTTP status code, 0 if not received
+  bool hasLocation;
+  bool locationTooLong;
+};
+void ota_header_parser_init(OtaHeaderParser* p, char* locationBuf, size_t locationSize);
+// True when the header is complete (empty line)
+bool ota_header_parser_feed(OtaHeaderParser* p, char c);
+
+// Redirect location -> absolute url, in place (buf contains the Location value, NUL terminated):
+//   "https://host/x" unchanged, "//host/x" -> scheme of base, "/x" -> scheme://host[:port] of base,
+//   "x" -> directory of the base path + x
+// False if buf is too small or base is not valid
+bool ota_resolve_location(const char* base, char* buf, size_t bufSize);
 
 #endif

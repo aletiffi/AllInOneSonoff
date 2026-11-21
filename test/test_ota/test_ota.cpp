@@ -131,6 +131,136 @@ static void test_parse_manifest_errors() {
   TEST_ASSERT_EQUAL_INT(OTA_MANIFEST_FIELD_TOO_LONG, ota_parse_manifest("{\"version\":\"45.3.0.0-very-long-suffix\",\"url\":\"https://a/b.bin\"}", version, sizeof(version), url, sizeof(url)));
 }
 
+static void test_split_url() {
+  bool https;
+  char host[32];
+  uint16_t port;
+  const char* path;
+  TEST_ASSERT_TRUE(ota_split_url("https://github.com/a/b?x=1", &https, host, sizeof(host), &port, &path));
+  TEST_ASSERT_TRUE(https);
+  TEST_ASSERT_EQUAL_STRING("github.com", host);
+  TEST_ASSERT_EQUAL_UINT16(443, port);
+  TEST_ASSERT_EQUAL_STRING("/a/b?x=1", path);
+
+  TEST_ASSERT_TRUE(ota_split_url("http://192.168.1.10:8080/fw.bin", &https, host, sizeof(host), &port, &path));
+  TEST_ASSERT_FALSE(https);
+  TEST_ASSERT_EQUAL_STRING("192.168.1.10", host);
+  TEST_ASSERT_EQUAL_UINT16(8080, port);
+  TEST_ASSERT_EQUAL_STRING("/fw.bin", path);
+
+  TEST_ASSERT_TRUE(ota_split_url("http://host", &https, host, sizeof(host), &port, &path));
+  TEST_ASSERT_EQUAL_UINT16(80, port);
+  TEST_ASSERT_EQUAL_STRING("", path);
+
+  TEST_ASSERT_FALSE(ota_split_url("ftp://host/x", &https, host, sizeof(host), &port, &path));
+  TEST_ASSERT_FALSE(ota_split_url("http://host:abc/x", &https, host, sizeof(host), &port, &path));
+  TEST_ASSERT_FALSE(ota_split_url("http://host:70000/x", &https, host, sizeof(host), &port, &path));
+  TEST_ASSERT_FALSE(ota_split_url("https:///x", &https, host, sizeof(host), &port, &path));
+  // Host too long for the buffer
+  TEST_ASSERT_FALSE(ota_split_url("https://a-very-long-host-name.example.com/x", &https, host, 16, &port, &path));
+}
+
+static void test_is_redirect() {
+  TEST_ASSERT_TRUE(ota_is_redirect(301));
+  TEST_ASSERT_TRUE(ota_is_redirect(302));
+  TEST_ASSERT_TRUE(ota_is_redirect(303));
+  TEST_ASSERT_TRUE(ota_is_redirect(307));
+  TEST_ASSERT_TRUE(ota_is_redirect(308));
+  TEST_ASSERT_FALSE(ota_is_redirect(200));
+  TEST_ASSERT_FALSE(ota_is_redirect(304));
+  TEST_ASSERT_FALSE(ota_is_redirect(404));
+}
+
+// Feeds the whole string, returns true if the header was completed
+static bool Feed(OtaHeaderParser* p, const char* s) {
+  bool done = false;
+  for (; *s; s++) {
+    done = ota_header_parser_feed(p, *s);
+  }
+  return done;
+}
+
+static void test_header_parser_github_redirect() {
+  char location[128];
+  OtaHeaderParser p;
+  ota_header_parser_init(&p, location, sizeof(location));
+  TEST_ASSERT_FALSE(Feed(&p, "HTTP/1.1 302 Found\r\nServer: github.com\r\n"));
+  // Header much longer than any buffer: skipped without problems
+  TEST_ASSERT_FALSE(Feed(&p, "Content-Security-Policy: "));
+  for (int i = 0; i < 5000; i++) {
+    ota_header_parser_feed(&p, 'x');
+  }
+  TEST_ASSERT_FALSE(Feed(&p, "\r\nlocation:   https://release-assets.example.com/a?b=1  \r\nContent-Length: 0\r\n"));
+  TEST_ASSERT_TRUE(Feed(&p, "\r\n"));
+  TEST_ASSERT_EQUAL_INT(302, p.status);
+  TEST_ASSERT_TRUE(p.hasLocation);
+  TEST_ASSERT_EQUAL_STRING("https://release-assets.example.com/a?b=1", location);
+  // Body after the header is ignored
+  TEST_ASSERT_TRUE(ota_header_parser_feed(&p, 'z'));
+}
+
+static void test_header_parser_no_location() {
+  char location[64];
+  OtaHeaderParser p;
+  ota_header_parser_init(&p, location, sizeof(location));
+  // Only \n as line terminator, header name longer than the internal buffer
+  TEST_ASSERT_TRUE(Feed(&p, "HTTP/1.0 200 OK\nX-A-Very-Long-Header-Name-Over-The-Buffer: Location: no\nLocationX: no\n\n"));
+  TEST_ASSERT_EQUAL_INT(200, p.status);
+  TEST_ASSERT_FALSE(p.hasLocation);
+  TEST_ASSERT_EQUAL_STRING("", location);
+}
+
+static void test_header_parser_location_too_long() {
+  char location[16];
+  OtaHeaderParser p;
+  ota_header_parser_init(&p, location, sizeof(location));
+  TEST_ASSERT_TRUE(Feed(&p, "HTTP/1.1 301 Moved\r\nLocation: https://example.com/very/long/path\r\n\r\n"));
+  TEST_ASSERT_EQUAL_INT(301, p.status);
+  TEST_ASSERT_FALSE(p.hasLocation);
+  TEST_ASSERT_TRUE(p.locationTooLong);
+}
+
+static void test_header_parser_not_http() {
+  char location[16];
+  OtaHeaderParser p;
+  ota_header_parser_init(&p, location, sizeof(location));
+  TEST_ASSERT_TRUE(Feed(&p, "garbage\r\n\r\n"));
+  TEST_ASSERT_EQUAL_INT(0, p.status);
+}
+
+static void test_resolve_location() {
+  char buf[96];
+  const char* base = "https://github.com:8443/owner/repo/releases/latest?x=/y";
+
+  strcpy(buf, "https://other.com/file");
+  TEST_ASSERT_TRUE(ota_resolve_location(base, buf, sizeof(buf)));
+  TEST_ASSERT_EQUAL_STRING("https://other.com/file", buf);
+
+  strcpy(buf, "//cdn.com/file");
+  TEST_ASSERT_TRUE(ota_resolve_location(base, buf, sizeof(buf)));
+  TEST_ASSERT_EQUAL_STRING("https://cdn.com/file", buf);
+
+  strcpy(buf, "/owner/repo/releases/download/v1/m.json");
+  TEST_ASSERT_TRUE(ota_resolve_location(base, buf, sizeof(buf)));
+  TEST_ASSERT_EQUAL_STRING("https://github.com:8443/owner/repo/releases/download/v1/m.json", buf);
+
+  strcpy(buf, "m.json");
+  TEST_ASSERT_TRUE(ota_resolve_location(base, buf, sizeof(buf)));
+  TEST_ASSERT_EQUAL_STRING("https://github.com:8443/owner/repo/releases/m.json", buf);
+
+  strcpy(buf, "m.json");
+  TEST_ASSERT_TRUE(ota_resolve_location("http://host", buf, sizeof(buf)));
+  TEST_ASSERT_EQUAL_STRING("http://host/m.json", buf);
+
+  // Buffer too small, empty location, invalid base
+  char small[24] = "/a/long/path/to/file";
+  TEST_ASSERT_FALSE(ota_resolve_location("https://github.com/x", small, sizeof(small)));
+  buf[0] = '\0';
+  TEST_ASSERT_FALSE(ota_resolve_location(base, buf, sizeof(buf)));
+  strcpy(buf, "/x");
+  TEST_ASSERT_FALSE(ota_resolve_location("ftp://host/", buf, sizeof(buf)));
+}
+
 int runUnityTests() {
   UNITY_BEGIN();
   RUN_TEST(test_compare_versions);
@@ -144,6 +274,13 @@ int runUnityTests() {
   RUN_TEST(test_parse_manifest_github_release);
   RUN_TEST(test_effective_url);
   RUN_TEST(test_parse_manifest_errors);
+  RUN_TEST(test_split_url);
+  RUN_TEST(test_is_redirect);
+  RUN_TEST(test_header_parser_github_redirect);
+  RUN_TEST(test_header_parser_no_location);
+  RUN_TEST(test_header_parser_location_too_long);
+  RUN_TEST(test_header_parser_not_http);
+  RUN_TEST(test_resolve_location);
   return UNITY_END();
 }
 
