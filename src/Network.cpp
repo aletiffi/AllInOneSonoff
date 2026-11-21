@@ -116,13 +116,11 @@ bool GetWifiPower(const String& netName) {
       result = true;
       int rawPower = WiFi.RSSI(i);
       Serial.print(WiFi.SSID(i) + " (" + String(rawPower) + ")");
-      if (minRawLevel <= rawPower && rawPower <= maxRawLevel) {
-        int power = map(rawPower, minRawLevel, maxRawLevel, minLevel, maxLevel);
-        Serial.println(levels[power]);
-        Led.Blink(T_200MS, power, T_200MS);
-      } else {
-        Serial.println(" Signal level out of bounds");
-      }
+      // Values outside the range are clamped: below -> Unreacheable, above -> Very High
+      int clampedPower = constrain(rawPower, minRawLevel, maxRawLevel);
+      int power = map(clampedPower, minRawLevel, maxRawLevel, minLevel, maxLevel);
+      Serial.println(levels[power]);
+      Led.Blink(T_200MS, power, T_200MS);
     }
   }
   return result;
