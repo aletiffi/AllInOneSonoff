@@ -48,6 +48,8 @@ extern bool mqttConfigured;
 void Settings_Begin();
 void SaveSettingsInEeprom();
 void LoadSettingsFromEeprom();
+// wifiConfigured and mqttConfigured from the settings in RAM (after loading or changing them)
+void Settings_UpdateFlags();
 void SaveStateInEeprom();
 void LoadStateFromEeprom();
 const char* DeviceModeName();

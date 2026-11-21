@@ -123,7 +123,10 @@ static void ChangeSettings() {
   StaticJsonDocument <768> doc;
   String data = server.arg("plain");
   String oldMode = DeviceMode.Val;
-  String oldApPassword = ApPassword.Val;
+  String oldValues[NUM_WIFI_SETTINGS];
+  for (byte i = 0; i < NUM_WIFI_SETTINGS; i++) {
+    oldValues[i] = WifiSettings[i]->Val;
+  }
   Serial.println("Parameters recived");
   if (deserializeJson(doc, data)) {
     server.send(400, "text/plain", "Invalid json");
@@ -135,15 +138,12 @@ static void ChangeSettings() {
       if (strcmp(kv.key().c_str(), WifiSettings[i]->Name.c_str()) == 0 && kv.value().is<const char*>()) {
         bool isUrl = WifiSettings[i] == &OtaUrl;
         // Passwords are never shown by the page: empty = keep, "-" = delete (not the WiFi one)
-        bool isPassword = WifiSettings[i] == &Password || WifiSettings[i] == &MqttPassword || WifiSettings[i] == &ApPassword;
-        bool allowClear = isUrl || WifiSettings[i] == &MqttPassword || WifiSettings[i] == &ApPassword;
+        // Empty = keep the saved value (an old or partially loaded page can never delete settings),
+        // "-" = delete: sent by the page for the fields emptied by the user. Not for the WiFi password
+        // (needed to connect) nor for the mode (validated below)
+        bool allowClear = WifiSettings[i] != &Password && WifiSettings[i] != &DeviceMode;
         char val[MAX_LENGTH_URL + 1];
-        SettingAction action = settings_sanitize(kv.value().as<const char*>(), allowClear, isUrl ? MAX_LENGTH_URL : MAX_LENGTH_SETTING, val, sizeof(val));
-        // The other fields show the saved value: emptied = deleted (the mode is validated below)
-        if (action == SETTING_KEEP && !isPassword && WifiSettings[i] != &DeviceMode) {
-          action = SETTING_CLEAR;
-        }
-        switch (action) {
+        switch (settings_sanitize(kv.value().as<const char*>(), allowClear, isUrl ? MAX_LENGTH_URL : MAX_LENGTH_SETTING, val, sizeof(val))) {
           case SETTING_SET:
             WifiSettings[i]->Val = val;
             break;
@@ -168,10 +168,16 @@ static void ChangeSettings() {
   }
 
   SaveSettingsInEeprom();
+  Settings_UpdateFlags();
   server.send(200, "text/plain", "Settings saved");
-  if (ApPassword.Val != oldApPassword) {
-    Serial.println(ApPassword.Val.length() > 0 ? "Access point password changed" : "Access point password removed");
+  // Names of the changed settings only (never the values: passwords)
+  String changed = "";
+  for (byte i = 0; i < NUM_WIFI_SETTINGS; i++) {
+    if (WifiSettings[i]->Val != oldValues[i]) {
+      changed += (changed.length() > 0 ? ", " : "") + WifiSettings[i]->Name + (WifiSettings[i]->Val.length() == 0 ? " (deleted)" : "");
+    }
   }
+  Serial.println("Settings changed: " + (changed.length() > 0 ? changed : String("none")));
 
   if (settings_mode_change_requires_restart(oldMode.c_str(), DeviceMode.Val.c_str())) {
     // GPIO14 changes function: a restart is required
@@ -188,6 +194,8 @@ void WebUI_Begin() {
     return;
   }
   server.on("/", []() {
+    // Always the page of the running firmware (an old page in the browser cache sends old requests)
+    server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     server.send_P(200, "text/html", webPage);
   });
   server.on("/info", HTTP_GET, SendInfo);

@@ -12,8 +12,10 @@ bool deviceConnected                 = false;
 // The ESP8266 has one radio: the access point works on the channel of the station.
 // While the SDK searches the network it scans all the channels and the access point is unusable,
 // so the automatic reconnection (a scan every second) is disabled: short attempts every
-// T_WIFI_RETRY, postponed while a device is connected to the access point.
+// T_WIFI_RETRY, postponed while a device is connected to the access point (at most T_WIFI_MAX_POSTPONE:
+// a phone that keeps the access point saved can stay connected and must not block the reconnection).
 #define T_WIFI_RETRY              30000
+#define T_WIFI_MAX_POSTPONE       T_5MIN
 #define T_WIFI_ATTEMPT            15000
 #define WIFI_OUTPUT_POWER_DBM     17.0f
 
@@ -22,6 +24,7 @@ static unsigned long lastTimeCheckConn = 0;
 static unsigned long lastWifiRetry     = 0;
 static unsigned long wifiAttemptStart  = 0;
 static bool wifiAttemptInProgress      = false;
+static unsigned long postponedSince    = 0;      // 0 = no attempt postponed
 
 void Connection_Manager() {
   Serial.println("Connection process started");
@@ -30,10 +33,11 @@ void Connection_Manager() {
   mdns.close();
   WiFi.softAPdisconnect(true);
   WiFi.disconnect();
+  // Settings already in RAM: loaded at startup, updated by the web page
   delay(T_200MS);
-  LoadSettingsFromEeprom();
 
-  WiFi.mode(WIFI_AP_STA);
+  // Without home WiFi configured: access point only (the station would only disturb it)
+  WiFi.mode(wifiConfigured ? WIFI_AP_STA : WIFI_AP);
   // Credentials only in RAM (no flash write at each attempt), reconnection managed by Network_Loop
   WiFi.persistent(false);
   WiFi.setAutoReconnect(false);
@@ -41,6 +45,9 @@ void Connection_Manager() {
   WiFi.setSleepMode(WIFI_NONE_SLEEP);
   // Below the maximum (20.5 dBm): lower current peaks on the small Sonoff power supply, still plenty for a home
   WiFi.setOutputPower(WIFI_OUTPUT_POWER_DBM);
+  // 802.11g only: the SDK crashed (exception 29 in ieee80211_setup_ratetable) updating the 802.11n
+  // parameters announced by the access point beacons; plenty of speed for a switch
+  WiFi.setPhyMode(WIFI_PHY_MODE_11G);
 
   if (wifiConfigured) {
     if (GetWifiPower(Ssid.Val)) {
@@ -80,11 +87,17 @@ void Connection_Manager() {
   }
   Serial.println("AP Name: " + Hostname.Val);
 
-  if (ApPassword.Val.length() > 0) {
-    WiFi.softAP(Hostname.Val.c_str(), ApPassword.Val.c_str());
-    Serial.println("Access point protected (WPA2)");
+  // Access point on the channel of the home network: one radio, both must use the same channel
+  // (with the default channel 1 a device joining the access point could move the radio and drop the station)
+  int apChannel = WiFi.status() == WL_CONNECTED ? WiFi.channel() : 1;
+  bool apProtected = ApPassword.Val.length() > 0;
+  bool apStarted = WiFi.softAP(Hostname.Val.c_str(), apProtected ? ApPassword.Val.c_str() : nullptr, apChannel);
+  if (!apStarted) {
+    Serial.println("ERROR: access point not started");
+  } else if (apProtected) {
+    Serial.println("Access point " + WiFi.softAPSSID() + " protected (WPA2), channel " + String(WiFi.channel()) + ", ip " + WiFi.softAPIP().toString());
   } else {
-    WiFi.softAP(Hostname.Val.c_str());
+    Serial.println("Access point " + WiFi.softAPSSID() + " open, channel " + String(WiFi.channel()) + ", ip " + WiFi.softAPIP().toString());
     Serial.println("WARNING: access point without password, anyone nearby can change the settings");
   }
   mdns.begin(Hostname.Val, WiFi.localIP());
@@ -119,10 +132,17 @@ static void WifiReconnect() {
   if (millis() - lastWifiRetry > T_WIFI_RETRY) {
     lastWifiRetry = millis();
     if (WiFi.softAPgetStationNum() > 0) {
-      // Someone is using the settings page: the attempt would disconnect them
-      Serial.println("WiFi: attempt postponed, a device is connected to the access point");
-      return;
+      if (postponedSince == 0) {
+        postponedSince = millis();
+      }
+      if (millis() - postponedSince < T_WIFI_MAX_POSTPONE) {
+        // Someone may be using the settings page: the attempt could disconnect them
+        Serial.println("WiFi: attempt postponed, a device is connected to the access point");
+        return;
+      }
+      Serial.println("WiFi: attempts postponed for " + String(T_WIFI_MAX_POSTPONE / 60000) + " min, trying anyway");
     }
+    postponedSince = 0;
     Serial.println("WiFi: connecting to " + Ssid.Val);
     WiFi.begin(Ssid.Val, Password.Val);
     wifiAttemptInProgress = true;
@@ -141,10 +161,12 @@ void Network_Loop() {
     return;
   }
   if (!deviceConnected) {
-    // Connected again (MQTT reconnects by itself in Mqtt_Loop)
+    // Connected again (also after a Connection_Manager timeout): MQTT host and topics from the current
+    // settings, Mqtt_Loop then connects by itself
     wifiAttemptInProgress = false;
     deviceConnected = true;
     Serial.println("WiFi connected again, IP: " + WiFi.localIP().toString());
+    Mqtt_Setup();
     Led.On();
   }
 

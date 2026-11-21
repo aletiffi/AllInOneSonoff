@@ -105,67 +105,68 @@ const char webPage[] PROGMEM = R"=====(
             <label for="Hostname">Device name (name of the access point, in Home Assistant and in the MQTT topics)</label>
           </p>
           <p>
-            <input value="" id="Hostname" placeholder="SonoffAllInOne" maxlength="20">
+            <input autocomplete="off" value="" id="Hostname" placeholder="SonoffAllInOne" maxlength="20">
           </p>
           <p>
             <label for="AP_Password">Access point password (8-20 characters)</label>
           </p>
           <p>
-            <input type="password" value="" id="AP_Password" placeholder="Access point password" maxlength="20">
+            <input type="password" autocomplete="new-password" value="" id="AP_Password" placeholder="Access point password" maxlength="20">
           </p>
           <p class="info" id="ap_status"></p>
           <p>
             <label for="Ssid">Home WiFi name (Ssid)</label>
           </p>
           <p>
-            <input value="" id="Ssid" placeholder="Wifi Net Name" maxlength="20">
+            <input autocomplete="off" value="" id="Ssid" placeholder="Wifi Net Name" maxlength="20">
           </p>
           <p>
             <label for="Password">Home WiFi password</label>
           </p>
           <p>
-            <input type="password" value="" id="Password" placeholder="Wifi Password" maxlength="20">
+            <input type="password" autocomplete="new-password" value="" id="Password" placeholder="Wifi Password" maxlength="20">
           </p>
           <p>
             <label for="MQTT_Sub">MQTT command topic (optional, default sonoff/&lt;hostname&gt;/set)</label>
           </p>
           <p>
-            <input value="" id="MQTT_Sub" placeholder="cmnd/MyDevice" maxlength="20">
+            <input autocomplete="off" value="" id="MQTT_Sub" placeholder="cmnd/MyDevice" maxlength="20">
           </p>
           <p>
             <label for="MQTT_Pub">MQTT state topic (optional, default sonoff/&lt;hostname&gt;/state)</label>
           </p>
           <p>
-            <input value="" id="MQTT_Pub" placeholder="stat/MyDevice" maxlength="20">
+            <input autocomplete="off" value="" id="MQTT_Pub" placeholder="stat/MyDevice" maxlength="20">
           </p>
           <p>
             <label for="MQTT_Server">MQTT Server (ip or ip:port, e.g. Home Assistant ip)</label>
           </p>
           <p>
-            <input value="" id="MQTT_Server" placeholder="192.168.1.100" maxlength="20">
+            <input autocomplete="off" value="" id="MQTT_Server" placeholder="192.168.1.100" maxlength="20">
           </p>
           <p>
             <label for="MQTT_User">MQTT User (optional)</label>
           </p>
           <p>
-            <input value="" id="MQTT_User" placeholder="MQTT User" maxlength="20">
+            <input autocomplete="off" value="" id="MQTT_User" placeholder="MQTT User" maxlength="20">
           </p>
           <p>
             <label for="MQTT_Password">MQTT Password (optional)</label>
           </p>
           <p>
-            <input type="password" value="" id="MQTT_Password" placeholder="MQTT Password" maxlength="20">
+            <input type="password" autocomplete="new-password" value="" id="MQTT_Password" placeholder="MQTT Password" maxlength="20">
           </p>
           <p>
             <label for="OTA_URL">Firmware update url (empty = latest GitHub release, "off" = disabled)</label>
           </p>
           <p>
-            <input value="" id="OTA_URL" placeholder="latest GitHub release (default)" maxlength="150">
+            <input autocomplete="off" value="" id="OTA_URL" placeholder="latest GitHub release (default)" maxlength="150">
           </p>
           <br>
           <p>
             <button type="button" id="savebtn" style="background-color: cornflowerblue;" onclick="save()">Save Settings</button>
           </p>
+          <p class="info" id="save_status"></p>
           <hr>
           <p>
             <button type="button" style="background-color: rgb(120, 190, 120);" onclick="checkUpdate()">Check firmware update</button>
@@ -177,8 +178,9 @@ const char webPage[] PROGMEM = R"=====(
           </p>
           <hr>
           <p>
-            <button style="background-color: rgb(189, 0, 0);" onclick="eepromConfirm()">Clean EEPROM</button>
+            <button id="cleanbtn" style="background-color: rgb(189, 0, 0);" onclick="eepromConfirm()">Clean EEPROM</button>
           </p>
+          <p class="info" id="clean_status"></p>
           <hr>
         </div>
       </div>
@@ -202,10 +204,15 @@ const char webPage[] PROGMEM = R"=====(
       }
 
       // Saved values in the settings fields (at startup and after saving, not to overwrite what is being typed)
+      // Values shown in the fields: an emptied field is sent as "-" (delete), because for the device
+      // an empty value means "keep the saved one"
+      var textIds = ["Hostname", "Ssid", "MQTT_Sub", "MQTT_Pub", "MQTT_Server", "MQTT_User", "OTA_URL"];
+      var savedSettings = {};
+
       function fillSettings(s) {
-        var ids = ["Hostname", "Ssid", "MQTT_Sub", "MQTT_Pub", "MQTT_Server", "MQTT_User", "OTA_URL"];
-        for (var i = 0; i < ids.length; i++) {
-          document.getElementById(ids[i]).value = s[ids[i]] || "";
+        savedSettings = s;
+        for (var i = 0; i < textIds.length; i++) {
+          document.getElementById(textIds[i]).value = s[textIds[i]] || "";
         }
         setPasswordField("Password", s.Password_set, "Wifi Password", false);
         setPasswordField("MQTT_Password", s.MQTT_Password_set, "MQTT Password", true);
@@ -270,6 +277,37 @@ const char webPage[] PROGMEM = R"=====(
         post("/color", {color:event.target.value});
       }
 
+      // No alert()/confirm(): browsers can block them for a site ("don't allow more dialogs") and the
+      // login pages of phones on networks without internet often ignore them. The page shows the
+      // messages and asks to press the button again to confirm.
+      var pendingConfirm = {};
+
+      function showStatus(id, msg, isError) {
+        var el = document.getElementById(id);
+        el.innerText = msg;
+        el.style.color = isError ? "rgb(189, 0, 0)" : "";
+      }
+
+      // True on the second press within 10 s, after showing the message
+      function confirmPress(btnId, statusId, msg) {
+        var btn = document.getElementById(btnId);
+        if (pendingConfirm[btnId]) {
+          clearTimeout(pendingConfirm[btnId].timer);
+          btn.innerText = pendingConfirm[btnId].label;
+          delete pendingConfirm[btnId];
+          return true;
+        }
+        var label = btn.innerText;
+        btn.innerText = "Press again to confirm";
+        showStatus(statusId, msg, true);
+        pendingConfirm[btnId] = {label: label, timer: setTimeout(function () {
+          btn.innerText = label;
+          showStatus(statusId, "", false);
+          delete pendingConfirm[btnId];
+        }, 10000)};
+        return false;
+      }
+
       function save() {
         var ids = ["Hostname", "Ssid", "Password", "MQTT_Sub", "MQTT_Pub", "MQTT_Server",
                    "MQTT_User", "MQTT_Password", "OTA_URL", "Device_Mode", "AP_Password"];
@@ -277,26 +315,39 @@ const char webPage[] PROGMEM = R"=====(
         for (var i = 0; i < ids.length; i++) {
           data[ids[i]] = document.getElementById(ids[i]).value;
         }
+        for (var j = 0; j < textIds.length; j++) {
+          var id = textIds[j];
+          if (data[id].trim() == "" && savedSettings[id]) {
+            data[id] = "-";
+          }
+        }
         var ap = data.AP_Password.trim();
         if (ap != "" && ap != "-" && (ap.length < 8 || ap.length > 20)) {
-          alert("Access point password: 8-20 characters");
+          showStatus("save_status", "Access point password: 8-20 characters", true);
           return;
         }
-        if (ap != "" && ap != "-" &&
-            !confirm("The access point will be protected by the new password: write it down, it's needed to change the settings without the home WiFi. Continue?")) {
+        var warnings = [];
+        if (ap != "" && ap != "-") {
+          warnings.push("The access point will be protected by the new password: write it down, it's needed to change the settings without the home WiFi.");
+        }
+        if (data.Device_Mode != currentMode) {
+          warnings.push("The device mode will change to " + data.Device_Mode + " and the device will restart.");
+        }
+        if (warnings.length > 0 && !confirmPress("savebtn", "save_status", warnings.join(" "))) {
           return;
         }
-        if (data.Device_Mode != currentMode &&
-            !confirm("The device mode will change to " + data.Device_Mode + " and the device will restart. Continue?")) {
-          return;
-        }
+        showStatus("save_status", "Saving...", false);
         var xhr = new XMLHttpRequest();
         xhr.onreadystatechange = function () {
           if (this.readyState == 4) {
-            alert(xhr.responseText || "No response from the device");
-            loadInfo(true);
+            var ok = xhr.status == 200;
+            showStatus("save_status", xhr.responseText || "No response from the device", !ok);
+            if (ok) {
+              loadInfo(true);
+            }
           }
         };
+        xhr.timeout = 15000;
         xhr.open("POST", "/settings", true);
         xhr.send(JSON.stringify(data));
       };
@@ -311,7 +362,7 @@ const char webPage[] PROGMEM = R"=====(
       }
 
       function eepromConfirm() {
-        if (confirm("Are you sure to clean all EEPROM?")) {
+        if (confirmPress("cleanbtn", "clean_status", "All the settings will be deleted.")) {
           window.location.href = '/clean';
         }
       }

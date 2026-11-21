@@ -71,6 +71,12 @@ void SaveSettingsInEeprom() {
   }
 }
 
+void Settings_UpdateFlags() {
+  // Only the server is required: topics have defaults, user and password are optional
+  mqttConfigured = MqttServer.Val.length() > 0;
+  wifiConfigured = Ssid.Val.length() > 0 && Password.Val.length() > 0;
+}
+
 void LoadSettingsFromEeprom() {
   Serial.println("Loading settings from EEPROM... ");
   mem.resetReadCounter();
@@ -87,9 +93,7 @@ void LoadSettingsFromEeprom() {
     Serial.println(WifiSettings[i]->Name + ": " + (secret ? "****" : WifiSettings[i]->Val));
   }
 
-  // Only the server is required: topics have defaults, user and password are optional
-  mqttConfigured = MqttServer.Val.length() > 0;
-  wifiConfigured = Ssid.Val.length() > 0 && Password.Val.length() > 0;
+  Settings_UpdateFlags();
 
   // Empty or unknown mode (e.g. EEPROM written by an old firmware) -> Switch
   deviceMode = settings_parse_mode(DeviceMode.Val.c_str());
