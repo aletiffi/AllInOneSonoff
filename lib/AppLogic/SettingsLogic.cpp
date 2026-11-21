@@ -63,3 +63,52 @@ SettingAction settings_sanitize(const char* in, bool allowClear, size_t maxLen, 
   out[len] = '\0';
   return SETTING_SET;
 }
+
+bool settings_is_valid_ap_password(const char* pwd, size_t maxLen) {
+  if (!pwd) {
+    return false;
+  }
+  size_t len = strlen(pwd);
+  if (len < AP_PASSWORD_MIN_LENGTH || len > maxLen) {
+    return false;
+  }
+  for (size_t i = 0; i < len; i++) {
+    if (pwd[i] < 0x20 || pwd[i] > 0x7e) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool settings_encode_ap_password(const char* pwd, char* out, size_t outSize) {
+  if (!out || outSize == 0) {
+    return false;
+  }
+  size_t len = pwd ? strlen(pwd) : 0;
+  if (len == 0) {
+    out[0] = '\0';
+    return true;
+  }
+  if (len + 2 > outSize) {
+    return false;
+  }
+  out[0] = AP_PASSWORD_MARKER;
+  memcpy(out + 1, pwd, len + 1);
+  return true;
+}
+
+bool settings_decode_ap_password(const char* stored, size_t maxLen, char* out, size_t outSize) {
+  if (!out || outSize == 0) {
+    return false;
+  }
+  out[0] = '\0';
+  if (!stored || stored[0] != AP_PASSWORD_MARKER || !settings_is_valid_ap_password(stored + 1, maxLen)) {
+    return true;
+  }
+  size_t len = strlen(stored + 1);
+  if (len + 1 > outSize) {
+    return false;
+  }
+  memcpy(out, stored + 1, len + 1);
+  return true;
+}

@@ -5,7 +5,7 @@
 #include <StoreStrings.h>
 #include <SettingsLogic.h>
 
-#define NUM_WIFI_SETTINGS         10
+#define NUM_WIFI_SETTINGS         11
 #define NUM_STATE_SETTINGS        5
 
 struct WifiSetup {
@@ -29,6 +29,7 @@ extern WifiSetup MqttUser;
 extern WifiSetup MqttPassword;
 extern WifiSetup OtaUrl;
 extern WifiSetup DeviceMode;
+extern WifiSetup ApPassword;
 extern WifiSetup* WifiSettings[NUM_WIFI_SETTINGS];
 
 // Last state saved in the second EEPROM partition

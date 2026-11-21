@@ -2,6 +2,7 @@
 #include <ArduinoJson.h>
 #include <SettingsLogic.h>
 #include <MqttLogic.h>
+#include <OtaLogic.h>
 #include "WebUI.h"
 #include "Config.h"
 #include "Settings.h"
@@ -38,7 +39,7 @@ static void HandleNotFound() {
 static void SendInfo() {
   // Used by the home page to show the controls of the current mode
   // On the heap: the ESP8266 stack is only 4 KB
-  DynamicJsonDocument doc(1024);
+  DynamicJsonDocument doc(1536);
   String msg_out;
 
   doc["mode"] = DeviceModeName();
@@ -54,6 +55,21 @@ static void SendInfo() {
   doc["mqtt_command"] = Mqtt_CommandTopic();
   doc["mqtt_state"] = Mqtt_StateTopic();
   doc["mqtt_base"] = Mqtt_BaseTopic();
+  doc["ap_protected"] = ApPassword.Val.length() > 0;
+  // Saved settings for the fields of the page; passwords never sent, only whether they are set
+  JsonObject s = doc.createNestedObject("settings");
+  s["Hostname"] = Hostname.Val;
+  s["Ssid"] = Ssid.Val;
+  s["MQTT_Sub"] = MqttSubTopic.Val;
+  s["MQTT_Pub"] = MqttPubTopic.Val;
+  s["MQTT_Server"] = MqttServer.Val;
+  s["MQTT_User"] = MqttUser.Val;
+  // Only a custom url or "off" (not e.g. an old OTA Drive key, which means default)
+  bool customOta = ota_is_valid_url(OtaUrl.Val.c_str()) || ota_is_disabled(OtaUrl.Val.c_str());
+  s["OTA_URL"] = customOta ? OtaUrl.Val : String("");
+  s["Password_set"] = Password.Val.length() > 0;
+  s["MQTT_Password_set"] = MqttPassword.Val.length() > 0;
+  s["AP_Password_set"] = ApPassword.Val.length() > 0;
   if (deviceMode == LEDSTRIP_MODE) {
     doc["color"] = LedStrip_ColorHex();
     doc["brightness"] = Brightness.Val;
@@ -107,6 +123,7 @@ static void ChangeSettings() {
   StaticJsonDocument <768> doc;
   String data = server.arg("plain");
   String oldMode = DeviceMode.Val;
+  String oldApPassword = ApPassword.Val;
   Serial.println("Parameters recived");
   if (deserializeJson(doc, data)) {
     server.send(400, "text/plain", "Invalid json");
@@ -117,9 +134,16 @@ static void ChangeSettings() {
     for (byte i = 0; i < NUM_WIFI_SETTINGS; i++) {
       if (strcmp(kv.key().c_str(), WifiSettings[i]->Name.c_str()) == 0 && kv.value().is<const char*>()) {
         bool isUrl = WifiSettings[i] == &OtaUrl;
+        // Passwords are never shown by the page: empty = keep, "-" = delete (not the WiFi one)
+        bool isPassword = WifiSettings[i] == &Password || WifiSettings[i] == &MqttPassword || WifiSettings[i] == &ApPassword;
+        bool allowClear = isUrl || WifiSettings[i] == &MqttPassword || WifiSettings[i] == &ApPassword;
         char val[MAX_LENGTH_URL + 1];
-        // "-" deletes the update url, empty values keep the saved ones
-        switch (settings_sanitize(kv.value().as<const char*>(), isUrl, isUrl ? MAX_LENGTH_URL : MAX_LENGTH_SETTING, val, sizeof(val))) {
+        SettingAction action = settings_sanitize(kv.value().as<const char*>(), allowClear, isUrl ? MAX_LENGTH_URL : MAX_LENGTH_SETTING, val, sizeof(val));
+        // The other fields show the saved value: emptied = deleted (the mode is validated below)
+        if (action == SETTING_KEEP && !isPassword && WifiSettings[i] != &DeviceMode) {
+          action = SETTING_CLEAR;
+        }
+        switch (action) {
           case SETTING_SET:
             WifiSettings[i]->Val = val;
             break;
@@ -136,9 +160,18 @@ static void ChangeSettings() {
   if (!settings_is_known_mode(DeviceMode.Val.c_str())) {
     DeviceMode.Val = oldMode;
   }
+  // WPA2 needs at least 8 characters: an invalid password is not saved (nothing else is saved either)
+  if (ApPassword.Val.length() > 0 && !settings_is_valid_ap_password(ApPassword.Val.c_str(), MAX_LENGTH_SETTING)) {
+    LoadSettingsFromEeprom();
+    server.send(400, "text/plain", "Access point password: 8-" + String(MAX_LENGTH_SETTING) + " characters (letters, numbers, symbols)");
+    return;
+  }
 
   SaveSettingsInEeprom();
   server.send(200, "text/plain", "Settings saved");
+  if (ApPassword.Val != oldApPassword) {
+    Serial.println(ApPassword.Val.length() > 0 ? "Access point password changed" : "Access point password removed");
+  }
 
   if (settings_mode_change_requires_restart(oldMode.c_str(), DeviceMode.Val.c_str())) {
     // GPIO14 changes function: a restart is required

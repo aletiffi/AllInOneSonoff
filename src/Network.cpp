@@ -75,7 +75,13 @@ void Connection_Manager() {
   }
   Serial.println("AP Name: " + Hostname.Val);
 
-  WiFi.softAP(Hostname.Val.c_str());
+  if (ApPassword.Val.length() > 0) {
+    WiFi.softAP(Hostname.Val.c_str(), ApPassword.Val.c_str());
+    Serial.println("Access point protected (WPA2)");
+  } else {
+    WiFi.softAP(Hostname.Val.c_str());
+    Serial.println("WARNING: access point without password, anyone nearby can change the settings");
+  }
   mdns.begin(Hostname.Val, WiFi.localIP());
   mdns.addService("http", "tcp", 80);
   WebUI_Begin();

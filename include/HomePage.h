@@ -102,19 +102,26 @@ const char webPage[] PROGMEM = R"=====(
             </select>
           </p>
           <p>
-            <label for="Hostname">Hostname</label>
+            <label for="Hostname">Device name (name of the access point, in Home Assistant and in the MQTT topics)</label>
           </p>
           <p>
-            <input value="" id="Hostname" placeholder="DeviceName" maxlength="20">
+            <input value="" id="Hostname" placeholder="SonoffAllInOne" maxlength="20">
           </p>
           <p>
-            <label for="Ssid">Ssid</label>
+            <label for="AP_Password">Access point password (8-20 characters)</label>
+          </p>
+          <p>
+            <input type="password" value="" id="AP_Password" placeholder="Access point password" maxlength="20">
+          </p>
+          <p class="info" id="ap_status"></p>
+          <p>
+            <label for="Ssid">Home WiFi name (Ssid)</label>
           </p>
           <p>
             <input value="" id="Ssid" placeholder="Wifi Net Name" maxlength="20">
           </p>
           <p>
-            <label for="Password">Password</label>
+            <label for="Password">Home WiFi password</label>
           </p>
           <p>
             <input type="password" value="" id="Password" placeholder="Wifi Password" maxlength="20">
@@ -150,10 +157,10 @@ const char webPage[] PROGMEM = R"=====(
             <input type="password" value="" id="MQTT_Password" placeholder="MQTT Password" maxlength="20">
           </p>
           <p>
-            <label for="OTA_URL">Firmware update url (empty = latest GitHub release, "off" = disabled, "-" = back to default)</label>
+            <label for="OTA_URL">Firmware update url (empty = latest GitHub release, "off" = disabled)</label>
           </p>
           <p>
-            <input value="" id="OTA_URL" placeholder="latest GitHub release" maxlength="150">
+            <input value="" id="OTA_URL" placeholder="latest GitHub release (default)" maxlength="150">
           </p>
           <br>
           <p>
@@ -184,10 +191,28 @@ const char webPage[] PROGMEM = R"=====(
 
       function startup() {
         document.getElementById("colorWell").addEventListener("change", sendColor, false);
-        loadInfo();
+        loadInfo(true);
       }
 
-      function loadInfo() {
+      // Password fields: the saved password is never sent by the device, only whether it is set
+      function setPasswordField(id, isSet, placeholder, canRemove) {
+        var el = document.getElementById(id);
+        el.value = "";
+        el.placeholder = isSet ? "saved - empty = keep" + (canRemove ? ", \"-\" = remove" : "") : placeholder;
+      }
+
+      // Saved values in the settings fields (at startup and after saving, not to overwrite what is being typed)
+      function fillSettings(s) {
+        var ids = ["Hostname", "Ssid", "MQTT_Sub", "MQTT_Pub", "MQTT_Server", "MQTT_User", "OTA_URL"];
+        for (var i = 0; i < ids.length; i++) {
+          document.getElementById(ids[i]).value = s[ids[i]] || "";
+        }
+        setPasswordField("Password", s.Password_set, "Wifi Password", false);
+        setPasswordField("MQTT_Password", s.MQTT_Password_set, "MQTT Password", true);
+        setPasswordField("AP_Password", s.AP_Password_set, "Access point password", true);
+      }
+
+      function loadInfo(withSettings) {
         var xhr = new XMLHttpRequest();
         xhr.onreadystatechange = function () {
           if (this.readyState == 4 && this.status == 200) {
@@ -200,8 +225,12 @@ const char webPage[] PROGMEM = R"=====(
               " - id " + info.unique_id + " - command topic " + info.mqtt_command + " - state topic " + info.mqtt_state;
             document.getElementById("ota_status").innerText = "Update: " + info.ota_status +
               (info.ota_signed ? " (signed firmware only)" : " (WARNING: signature check disabled)");
-            document.getElementById("OTA_URL").placeholder = info.ota_url == "" ? "off (updates disabled)" :
-              (info.ota_url_default ? "latest GitHub release (default)" : info.ota_url);
+            if (withSettings) {
+              fillSettings(info.settings);
+            }
+            document.getElementById("ap_status").innerText = info.ap_protected ?
+              "Access point protected by password" :
+              "WARNING: access point without password, anyone nearby can change the settings";
             if (info.mode == "LedStrip") {
               document.getElementById("ledstrip").classList.remove("hidden");
               document.getElementById("colorWell").value = info.color;
@@ -243,16 +272,33 @@ const char webPage[] PROGMEM = R"=====(
 
       function save() {
         var ids = ["Hostname", "Ssid", "Password", "MQTT_Sub", "MQTT_Pub", "MQTT_Server",
-                   "MQTT_User", "MQTT_Password", "OTA_URL", "Device_Mode"];
+                   "MQTT_User", "MQTT_Password", "OTA_URL", "Device_Mode", "AP_Password"];
         var data = {};
         for (var i = 0; i < ids.length; i++) {
           data[ids[i]] = document.getElementById(ids[i]).value;
+        }
+        var ap = data.AP_Password.trim();
+        if (ap != "" && ap != "-" && (ap.length < 8 || ap.length > 20)) {
+          alert("Access point password: 8-20 characters");
+          return;
+        }
+        if (ap != "" && ap != "-" &&
+            !confirm("The access point will be protected by the new password: write it down, it's needed to change the settings without the home WiFi. Continue?")) {
+          return;
         }
         if (data.Device_Mode != currentMode &&
             !confirm("The device mode will change to " + data.Device_Mode + " and the device will restart. Continue?")) {
           return;
         }
-        post("/settings", data);
+        var xhr = new XMLHttpRequest();
+        xhr.onreadystatechange = function () {
+          if (this.readyState == 4) {
+            alert(xhr.responseText || "No response from the device");
+            loadInfo(true);
+          }
+        };
+        xhr.open("POST", "/settings", true);
+        xhr.send(JSON.stringify(data));
       };
 
       function checkUpdate() {
