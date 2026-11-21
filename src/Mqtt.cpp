@@ -12,6 +12,7 @@
 
 // Discovery message (~1.7 KB) + topic + MQTT header
 #define MQTT_BUFFER_SIZE          2304
+#define MQTT_SUSPENDED_BUFFER_SIZE 64
 #define MQTT_DEFAULT_PORT         1883
 #define T_TELEMETRY               T_5MIN
 
@@ -19,7 +20,8 @@ static WiFiClient espClient;
 static PubSubClient client(espClient);
 static unsigned long lastMqttCheckConn = 0;
 static unsigned long lastTelemetry     = 0;
-static unsigned long republishAt       = 0;   // != 0: discovery to publish again (Home Assistant restarted)
+static unsigned long republishAt       = 0;
+static bool waitingForWifi             = false;   // != 0: discovery to publish again (Home Assistant restarted)
 
 static String mqttHost;
 static uint16_t mqttPort = MQTT_DEFAULT_PORT;
@@ -144,6 +146,11 @@ static void Callback(char *topic, byte *payload, unsigned int length) {
 }
 
 static void Connect() {
+  // Buffer reduced by Mqtt_Suspend()
+  if (client.getBufferSize() != MQTT_BUFFER_SIZE && !client.setBufferSize(MQTT_BUFFER_SIZE)) {
+    Serial.println("MQTT: not enough memory for the buffer (free heap " + String(ESP.getFreeHeap()) + ")");
+    return;
+  }
   Serial.print("Connecting Mqtt client to " + mqttHost + ":" + String(mqttPort) + "... ");
   const char* user = MqttUser.Val.length() > 0 ? MqttUser.Val.c_str() : nullptr;
   const char* password = MqttPassword.Val.length() > 0 ? MqttPassword.Val.c_str() : nullptr;
@@ -158,7 +165,8 @@ static void Connect() {
     client.subscribe(HA_STATUS_TOPIC);
     PublishAll();
   } else {
-    Serial.println("Failed (" + String(client.state()) + ")");
+    Serial.println("Failed (" + String(client.state()) + ") WiFi status: " + String(WiFi.status()) +
+                   " RSSI: " + String(WiFi.RSSI()) + " free heap: " + String(ESP.getFreeHeap()));
   }
 }
 
@@ -197,6 +205,16 @@ void Mqtt_Loop() {
     return;
   }
   if (!client.connected()) {
+    // Without WiFi the connection can't succeed: waits for the SDK to reconnect, then retries at once
+    if (WiFi.status() != WL_CONNECTED) {
+      if (!waitingForWifi) {
+        waitingForWifi = true;
+        Serial.println("MQTT: WiFi disconnected, waiting for it");
+      }
+      lastMqttCheckConn = millis() - T_5S - 1;
+      return;
+    }
+    waitingForWifi = false;
     if (millis() - lastMqttCheckConn > T_5S) {
       lastMqttCheckConn = millis();
       Connect();
@@ -212,6 +230,18 @@ void Mqtt_Loop() {
   if (millis() - lastTelemetry > T_TELEMETRY) {
     Mqtt_PublishTelemetry();
   }
+}
+
+void Mqtt_Suspend() {
+  if (client.connected()) {
+    // Clean disconnection: the broker doesn't publish the last will, Home Assistant keeps the device online
+    client.disconnect();
+    Serial.println("MQTT suspended");
+  }
+  // Frees most of the buffer (realloc), restored by Connect()
+  client.setBufferSize(MQTT_SUSPENDED_BUFFER_SIZE);
+  // Reconnection at the next Mqtt_Loop
+  lastMqttCheckConn = millis() - T_5S - 1;
 }
 
 void Mqtt_Disconnect() {
