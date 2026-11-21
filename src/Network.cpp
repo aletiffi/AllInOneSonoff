@@ -15,6 +15,7 @@ bool deviceConnected                 = false;
 // T_WIFI_RETRY, postponed while a device is connected to the access point.
 #define T_WIFI_RETRY              30000
 #define T_WIFI_ATTEMPT            15000
+#define WIFI_OUTPUT_POWER_DBM     17.0f
 
 static MDNSResponder mdns;
 static unsigned long lastTimeCheckConn = 0;
@@ -36,6 +37,10 @@ void Connection_Manager() {
   // Credentials only in RAM (no flash write at each attempt), reconnection managed by Network_Loop
   WiFi.persistent(false);
   WiFi.setAutoReconnect(false);
+  // Mains powered: no modem sleep (with some access points/extenders it causes "bcn_timout" disconnections)
+  WiFi.setSleepMode(WIFI_NONE_SLEEP);
+  // Below the maximum (20.5 dBm): lower current peaks on the small Sonoff power supply, still plenty for a home
+  WiFi.setOutputPower(WIFI_OUTPUT_POWER_DBM);
 
   if (wifiConfigured) {
     if (GetWifiPower(Ssid.Val)) {
