@@ -116,6 +116,9 @@ def sign_firmware(source, target, env):
     with open(bin_path, "rb") as f:
         data = f.read()
     name = "AllInOneSonoff_v%s" % firmware_version()
+    # Other environments (e.g. sonoff_debug) must not overwrite the release files
+    if env["PIOENV"] != "sonoff_sv":
+        name += "_" + env["PIOENV"]
     plain = os.path.join(PROJECT_DIR, name + ".bin")
     shutil.copyfile(bin_path, plain)
     log("Firmware for serial flash: %s (%d bytes)" % (os.path.relpath(plain, PROJECT_DIR), len(data)))

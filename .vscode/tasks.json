@@ -51,6 +51,15 @@
             "problemMatcher": ["$platformio"]
         },
         {
+            "label": "Flash debug + Serial monitor",
+            "detail": "Writes the firmware with the ESP8266 core debug logs (HTTP client) and opens the serial monitor",
+            "type": "shell",
+            "command": "\"$PIO\" run -e sonoff_debug -t upload -t monitor",
+            "windows": { "command": "& \"$env:PIO\" run -e sonoff_debug -t upload -t monitor" },
+            "presentation": { "panel": "dedicated", "focus": true },
+            "problemMatcher": ["$platformio"]
+        },
+        {
             "label": "Unit test (PC)",
             "detail": "Runs the unit tests on the PC, no hardware needed",
             "type": "shell",
