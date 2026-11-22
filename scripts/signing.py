@@ -10,6 +10,7 @@
 #     AllInOneSonoff_v<FW_VERSION>.ota.bin.gz   gzip compressed + signed, to publish for the OTA
 #   The ESP8266 bootloader decompresses gzip images by itself (about 30% less space needed for the OTA).
 #   Signed format (ESP8266 core): <data><signature><uint32 LE signature length>, signed AFTER compression.
+#   The signed data is padded to a multiple of 4 bytes (see pad_gzip: bug of the core Updater).
 #
 # Without public key the firmware accepts unsigned updates (OTA_SIGNING 0).
 
@@ -93,7 +94,35 @@ def gzip_bytes(data):
     out = io.BytesIO()
     with gzip.GzipFile(fileobj=out, mode="wb", compresslevel=9, mtime=0) as gz:
         gz.write(data)
-    return out.getvalue()
+    return pad_gzip(out.getvalue(), data)
+
+
+GZIP_HEADER_SIZE = 10
+GZIP_FLAG_FEXTRA = 0x04
+
+
+def pad_gzip(gz, data):
+    # ESP8266 core 3.1.2 bug: the Updater reads the last block of the signed data with
+    # ESP.flashRead(uint32_t*, len), which refuses a len not multiple of 4 without reading:
+    # the hash is computed on stale bytes and every update is refused ("Signature verification failed").
+    # The data must be a multiple of 4 bytes. Padding at the end is not possible (eboot reads the
+    # uncompressed size from the last 4 bytes), so an "extra" field is added to the gzip header:
+    # a subfield "PD" of 0-3 bytes, skipped by the decompressors (uzlib in eboot too).
+    pad = (-len(gz)) % 4
+    if pad == 0:
+        return gz
+    if gz[3] & GZIP_FLAG_FEXTRA:
+        raise SystemExit("[signing] unexpected gzip extra field")
+    # Extra field: XLEN (2) + subfield id (2) + subfield length (2) + data -> 6..9 bytes
+    extra_len = 6 + (pad - 6) % 4
+    sub_len = extra_len - 6
+    extra = struct.pack("<H", extra_len - 2) + b"PD" + struct.pack("<H", sub_len) + bytes(sub_len)
+    header = bytearray(gz[:GZIP_HEADER_SIZE])
+    header[3] |= GZIP_FLAG_FEXTRA
+    padded = bytes(header) + extra + gz[GZIP_HEADER_SIZE:]
+    if len(padded) % 4 != 0 or gzip.decompress(padded) != data:
+        raise SystemExit("[signing] gzip padding failed")
+    return padded
 
 
 def sign_bytes(data):
