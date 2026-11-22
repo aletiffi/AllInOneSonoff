@@ -28,7 +28,8 @@ static void PushButtonFunction(int func) {
       break;
     case 3:
       Serial.println("Check FW update");
-      Ota_Check();
+      // Manual request: done by Ota_Loop, restarts first if the memory is not enough
+      Ota_Request();
       break;
     case 4:
       Serial.println("Show ip address");

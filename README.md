@@ -366,6 +366,8 @@ The manifest looks like this:
 
 The Sonoff reads the manifest at startup, then every hour, with the button (3 flashes), with the *Check firmware update* button (web page or Home Assistant) or with *Install* on the Home Assistant `update` entity. If `version` is **newer** than the installed one, it downloads the file at `url`, checks the **signature**, installs it and restarts. The result is shown in the web page and in Home Assistant.
 
+During the check the Sonoff's own WiFi network (access point) is **turned off** for a few seconds, then it comes back: an HTTPS connection leaves very little memory. So the automatic checks (startup and every hour) are postponed by 5 minutes while a device is connected to the access point. If the memory is too fragmented for HTTPS (e.g. right after using the web page), a check you request restarts the Sonoff and runs right after the start; an automatic check is skipped until the next hour.
+
 ### 9.2 Publishing an update with GitHub Releases (recommended)
 
 The **Release** pipeline does everything by itself: tests, version increment, build, signature and download page.

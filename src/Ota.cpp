@@ -30,7 +30,20 @@ static BearSSL::SigningVerifier signVerifier(&signPubKey);
 #warning "keys/public.key not found: OTA updates are not verified"
 #endif
 
+// Memory needed by a TLS connection (BearSSL): ~17 KB contiguous receive buffer (github doesn't support
+// MFLN) + second stack, context and certificate validator. Below these values the connection fails or
+// BearSSL aborts (OOM), even with enough free memory but fragmented
+#define OTA_TLS_MIN_FREE          26624
+#define OTA_TLS_MIN_BLOCK         18432
+#define OTA_CONNECT_ATTEMPTS      3
+// RTC user memory, kept across a software restart (words 0-31 are used by eboot for the OTA)
+#define OTA_RTC_OFFSET            64
+#define OTA_RTC_CHECK_MAGIC       0x0A7AC4EC
+// Automatic check postponed while a device is connected to the access point
+#define T_OTA_POSTPONE            T_5MIN
 static bool otaRequested           = false;
+// The pending request comes from a restart for memory: never restart again for it
+static bool requestAfterRestart    = false;
 static bool firstCheckDone         = false;
 static unsigned long lastOtaCheck  = 0;
 static String otaStatus            = "Never checked";
@@ -89,7 +102,23 @@ static bool ResolveUrl(const char* url, String& finalUrl) {
     {
       std::unique_ptr<WiFiClient> client = MakeClient(current.get());
       client->setTimeout(T_10S);
-      if (!client->connect(host, port)) {
+      // Right after the access point is turned off (devices disconnected) the first connection can fail
+      bool connected = false;
+      for (int attempt = 1; attempt <= OTA_CONNECT_ATTEMPTS && !connected; attempt++) {
+        connected = client->connect(host, port);
+        if (!connected) {
+          // TLS error 0 = no TLS error: DNS or TCP connection failed
+          int sslError = https ? static_cast<BearSSL::WiFiClientSecure*>(client.get())->getLastSSLError() : 0;
+          Serial.println("OTA: connection attempt " + String(attempt) + " failed: WiFi status " + String(WiFi.status()) +
+                         ", RSSI " + String(WiFi.RSSI()) + ", free heap " + String(ESP.getFreeHeap()) +
+                         ", largest block " + String(ESP.getMaxFreeBlockSize()) + ", TLS error " + String(sslError));
+          client->stop();
+          if (attempt < OTA_CONNECT_ATTEMPTS) {
+            delay(T_1S);
+          }
+        }
+      }
+      if (!connected) {
         SetStatus("Connection to " + String(host) + " failed");
         return false;
       }
@@ -202,11 +231,9 @@ static void InstallFirmware(const char* binUrl) {
   ESPhttpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
   ESPhttpUpdate.setLedPin(SONOFF_LED, LOW);
   ESPhttpUpdate.rebootOnUpdate(true);
-  Network_PauseAccessPoint();
   Serial.println("OTA: downloading firmware (free heap " + String(ESP.getFreeHeap()) + ")");
   t_httpUpdate_return ret = ESPhttpUpdate.update(*client, resolved, FW_VERSION);
   // Reached only if the update failed (on success the device restarts)
-  Network_ResumeAccessPoint();
   Serial.println("OTA: free heap " + String(ESP.getFreeHeap()) + ", largest block " + String(ESP.getMaxFreeBlockSize()) + " after the failed update");
 
 #if OTA_SIGNING
@@ -234,8 +261,29 @@ static void InstallFirmware(const char* binUrl) {
   }
 }
 
+// Manual check requested before a restart (not enough memory): done at the first connection
+static bool TakeRestartRequest() {
+  uint32_t magic = 0;
+  if (!ESP.rtcUserMemoryRead(OTA_RTC_OFFSET, &magic, sizeof(magic)) || magic != OTA_RTC_CHECK_MAGIC) {
+    return false;
+  }
+  magic = 0;
+  ESP.rtcUserMemoryWrite(OTA_RTC_OFFSET, &magic, sizeof(magic));
+  return true;
+}
+
+static void RestartForCheck() {
+  uint32_t magic = OTA_RTC_CHECK_MAGIC;
+  ESP.rtcUserMemoryWrite(OTA_RTC_OFFSET, &magic, sizeof(magic));
+  Serial.println("OTA: restarting to check the update with all the memory free");
+  delay(T_200MS);
+  ESP.restart();
+}
+
 void Ota_Check() {
+  bool canRestart = otaRequested && !requestAfterRestart;
   otaRequested = false;
+  requestAfterRestart = false;
   firstCheckDone = true;
   lastOtaCheck = millis();
 
@@ -258,21 +306,35 @@ void Ota_Check() {
   }
   // Memory for the TLS connections: MQTT is reconnected by Mqtt_Loop after the check
   Mqtt_Suspend();
-  Serial.println("OTA: manifest " + String(manifestUrl) + " (free heap " + String(ESP.getFreeHeap()) + ")");
-  if (!DownloadManifest(manifestUrl, version, binUrl)) {
+  // Access point off during the whole check: a TLS connection leaves a few KB of memory and a device
+  // joining (or connected to) the access point made the SDK crash
+  Network_PauseAccessPoint();
+  uint32_t freeHeap = ESP.getFreeHeap();
+  uint32_t maxBlock = ESP.getMaxFreeBlockSize();
+  Serial.println("OTA: manifest " + String(manifestUrl) + " (free heap " + String(freeHeap) + ", largest block " + String(maxBlock) + ")");
+  if (ota_is_https(manifestUrl) && (freeHeap < OTA_TLS_MIN_FREE || maxBlock < OTA_TLS_MIN_BLOCK)) {
+    if (canRestart) {
+      // Right after the start the memory is not fragmented yet
+      SetStatus("Not enough memory, restarting to check");
+      RestartForCheck();
+    }
+    SetStatus("Not enough memory for the check, next attempt in 1 h");
+    Network_ResumeAccessPoint();
     return;
   }
-  latestVersion = version;
-
-  if (!ota_is_update_needed(version, FW_VERSION)) {
-    SetStatus("Firmware up to date (" FW_VERSION ", available " + String(version) + ")");
-    return;
+  if (DownloadManifest(manifestUrl, version, binUrl)) {
+    latestVersion = version;
+    if (!ota_is_update_needed(version, FW_VERSION)) {
+      SetStatus("Firmware up to date (" FW_VERSION ", available " + String(version) + ")");
+    } else {
+      otaStatus = "Updating " FW_VERSION " -> " + String(version);
+      Serial.println("OTA: " + otaStatus);
+      Mqtt_PublishUpdateState(true);
+      // Returns only if the update failed (on success the device restarts)
+      InstallFirmware(binUrl);
+    }
   }
-
-  otaStatus = "Updating " FW_VERSION " -> " + String(version);
-  Serial.println("OTA: " + otaStatus);
-  Mqtt_PublishUpdateState(true);
-  InstallFirmware(binUrl);
+  Network_ResumeAccessPoint();
 }
 
 void Ota_Request() {
@@ -298,7 +360,22 @@ bool Ota_IsSigningEnabled() {
 }
 
 void Ota_Loop() {
+  static bool restartChecked = false;
+  if (!restartChecked) {
+    restartChecked = true;
+    if (TakeRestartRequest()) {
+      // Treated as a manual request: not postponed by the devices on the access point
+      otaRequested = true;
+      requestAfterRestart = true;
+      otaStatus = "Checking...";
+    }
+  }
   if (!deviceConnected) {
+    if (otaRequested) {
+      // Answers the request instead of leaving "Checking..." until the WiFi comes back
+      otaRequested = false;
+      SetStatus("Device not connected to the home WiFi");
+    }
     return;
   }
   // On request, at the first connection and then every hour
@@ -307,6 +384,13 @@ void Ota_Loop() {
     return;
   }
   if (otaRequested || !firstCheckDone || millis() - lastOtaCheck > T_1H) {
+    if (!otaRequested && WiFi.softAPgetStationNum() > 0) {
+      // Automatic check: the access point would be turned off, don't disconnect who is using it
+      Serial.println("OTA: check postponed, a device is connected to the access point");
+      firstCheckDone = true;
+      lastOtaCheck = millis() - T_1H + T_OTA_POSTPONE;
+      return;
+    }
     Ota_Check();
   }
 }
