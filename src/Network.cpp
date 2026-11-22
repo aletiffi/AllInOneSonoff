@@ -12,12 +12,14 @@ bool deviceConnected                 = false;
 // The ESP8266 has one radio: the access point works on the channel of the station.
 // While the SDK searches the network it scans all the channels and the access point is unusable,
 // so the automatic reconnection (a scan every second) is disabled: short attempts every
-// T_WIFI_RETRY, postponed while a device is connected to the access point (at most T_WIFI_MAX_POSTPONE:
+// T_WIFI_RETRY. If the home network was not found they are postponed while a device is connected to
+// the access point (at most T_WIFI_MAX_POSTPONE:
 // a phone that keeps the access point saved can stay connected and must not block the reconnection).
 #define T_WIFI_RETRY              30000
 #define T_WIFI_MAX_POSTPONE       T_5MIN
 #define T_WIFI_ATTEMPT            15000
 #define WIFI_OUTPUT_POWER_DBM     17.0f
+#define T_AP_PAUSE_SETTLE         1500
 
 static MDNSResponder mdns;
 static unsigned long lastTimeCheckConn = 0;
@@ -25,8 +27,25 @@ static unsigned long lastWifiRetry     = 0;
 static unsigned long wifiAttemptStart  = 0;
 static bool wifiAttemptInProgress      = false;
 static unsigned long postponedSince    = 0;      // 0 = no attempt postponed
+// The home network was not found by the last attempt: only then the attempts are postponed while a
+// device is connected to the access point (an attempt with the network in range lasts a few seconds)
+static bool homeNetworkMissing         = false;
 
 static bool apPaused = false;
+
+// Also after every WiFi mode change: the SDK may restore its defaults
+static void ApplyRadioSettings() {
+  // Credentials only in RAM (no flash write at each attempt), reconnection managed by Network_Loop
+  WiFi.persistent(false);
+  WiFi.setAutoReconnect(false);
+  // Mains powered: no modem sleep (with some access points/extenders it causes "bcn_timout" disconnections)
+  WiFi.setSleepMode(WIFI_NONE_SLEEP);
+  // Below the maximum (20.5 dBm): lower current peaks on the small Sonoff power supply, still plenty for a home
+  WiFi.setOutputPower(WIFI_OUTPUT_POWER_DBM);
+  // 802.11g only: the SDK crashed (exception 29 in ieee80211_setup_ratetable) updating the 802.11n
+  // parameters announced by the access point beacons; plenty of speed for a switch
+  WiFi.setPhyMode(WIFI_PHY_MODE_11G);
+}
 
 static void StartAccessPoint() {
   // Access point on the channel of the home network: one radio, both must use the same channel
@@ -53,8 +72,11 @@ void Network_PauseAccessPoint() {
   // mDNS first: it must leave the multicast group before the interface is removed (crash, exception 0)
   mdns.close();
   WiFi.softAPdisconnect(true);
+  ApplyRadioSettings();
   apPaused = true;
-  Serial.println("Access point off during the update (free heap " + String(ESP.getFreeHeap()) + ")");
+  // Time for the WiFi stack to settle after disconnecting the devices (the first connection failed)
+  delay(T_AP_PAUSE_SETTLE);
+  Serial.println("Access point off during the update check (free heap " + String(ESP.getFreeHeap()) + ")");
 }
 
 void Network_ResumeAccessPoint() {
@@ -63,6 +85,7 @@ void Network_ResumeAccessPoint() {
   }
   apPaused = false;
   WiFi.mode(WIFI_AP_STA);
+  ApplyRadioSettings();
   StartAccessPoint();
 }
 
@@ -79,19 +102,11 @@ void Connection_Manager() {
 
   // Without home WiFi configured: access point only (the station would only disturb it)
   WiFi.mode(wifiConfigured ? WIFI_AP_STA : WIFI_AP);
-  // Credentials only in RAM (no flash write at each attempt), reconnection managed by Network_Loop
-  WiFi.persistent(false);
-  WiFi.setAutoReconnect(false);
-  // Mains powered: no modem sleep (with some access points/extenders it causes "bcn_timout" disconnections)
-  WiFi.setSleepMode(WIFI_NONE_SLEEP);
-  // Below the maximum (20.5 dBm): lower current peaks on the small Sonoff power supply, still plenty for a home
-  WiFi.setOutputPower(WIFI_OUTPUT_POWER_DBM);
-  // 802.11g only: the SDK crashed (exception 29 in ieee80211_setup_ratetable) updating the 802.11n
-  // parameters announced by the access point beacons; plenty of speed for a switch
-  WiFi.setPhyMode(WIFI_PHY_MODE_11G);
+  ApplyRadioSettings();
 
   if (wifiConfigured) {
-    if (GetWifiPower(Ssid.Val)) {
+    homeNetworkMissing = !GetWifiPower(Ssid.Val);
+    if (!homeNetworkMissing) {
       WiFi.begin(Ssid.Val, Password.Val);
       Serial.println("Connecting to: " + String(Ssid.Val));
       byte numCehck = 0;
@@ -143,14 +158,16 @@ static void WifiReconnect() {
     deviceConnected = false;
     Serial.println("WiFi connection lost (status " + String(WiFi.status()) + ")");
     Led.Off();
-    // First attempt in a few seconds
+    // First attempt in a few seconds, also with devices on the access point
     lastWifiRetry = millis() - T_WIFI_RETRY + T_5S;
+    homeNetworkMissing = false;
   }
   if (wifiAttemptInProgress) {
     if (millis() - wifiAttemptStart > T_WIFI_ATTEMPT) {
       // Stops the search (credentials kept), the access point gets its channel back
       WiFi.disconnect(false, false);
       wifiAttemptInProgress = false;
+      homeNetworkMissing = true;
       lastWifiRetry = millis();
       Serial.println("WiFi: " + Ssid.Val + " not reachable, next attempt in " + String(T_WIFI_RETRY / 1000) + " s");
     }
@@ -158,7 +175,7 @@ static void WifiReconnect() {
   }
   if (millis() - lastWifiRetry > T_WIFI_RETRY) {
     lastWifiRetry = millis();
-    if (WiFi.softAPgetStationNum() > 0) {
+    if (homeNetworkMissing && WiFi.softAPgetStationNum() > 0) {
       if (postponedSince == 0) {
         postponedSince = millis();
       }
@@ -191,6 +208,7 @@ void Network_Loop() {
     // Connected again (also after a Connection_Manager timeout): MQTT host and topics from the current
     // settings, Mqtt_Loop then connects by itself
     wifiAttemptInProgress = false;
+    homeNetworkMissing = false;
     deviceConnected = true;
     Serial.println("WiFi connected again, IP: " + WiFi.localIP().toString());
     Mqtt_Setup();
