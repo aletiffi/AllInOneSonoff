@@ -26,8 +26,49 @@ static unsigned long wifiAttemptStart  = 0;
 static bool wifiAttemptInProgress      = false;
 static unsigned long postponedSince    = 0;      // 0 = no attempt postponed
 
+static bool apPaused = false;
+
+static void StartAccessPoint() {
+  // Access point on the channel of the home network: one radio, both must use the same channel
+  // (with the default channel 1 a device joining the access point could move the radio and drop the station)
+  int apChannel = WiFi.status() == WL_CONNECTED ? WiFi.channel() : 1;
+  bool apProtected = ApPassword.Val.length() > 0;
+  bool apStarted = WiFi.softAP(Hostname.Val.c_str(), apProtected ? ApPassword.Val.c_str() : nullptr, apChannel);
+  if (!apStarted) {
+    Serial.println("ERROR: access point not started");
+  } else if (apProtected) {
+    Serial.println("Access point " + WiFi.softAPSSID() + " protected (WPA2), channel " + String(WiFi.channel()) + ", ip " + WiFi.softAPIP().toString());
+  } else {
+    Serial.println("Access point " + WiFi.softAPSSID() + " open, channel " + String(WiFi.channel()) + ", ip " + WiFi.softAPIP().toString());
+    Serial.println("WARNING: access point without password, anyone nearby can change the settings");
+  }
+  mdns.begin(Hostname.Val, WiFi.localIP());
+  mdns.addService("http", "tcp", 80);
+}
+
+void Network_PauseAccessPoint() {
+  if (apPaused || WiFi.getMode() != WIFI_AP_STA) {
+    return;
+  }
+  // mDNS first: it must leave the multicast group before the interface is removed (crash, exception 0)
+  mdns.close();
+  WiFi.softAPdisconnect(true);
+  apPaused = true;
+  Serial.println("Access point off during the update (free heap " + String(ESP.getFreeHeap()) + ")");
+}
+
+void Network_ResumeAccessPoint() {
+  if (!apPaused) {
+    return;
+  }
+  apPaused = false;
+  WiFi.mode(WIFI_AP_STA);
+  StartAccessPoint();
+}
+
 void Connection_Manager() {
   Serial.println("Connection process started");
+  apPaused = false;
   // mDNS joins the multicast group on both interfaces: it must leave it before the access point
   // interface is removed, or the lwIP IGMP timer sends on the removed interface (crash, exception 0)
   mdns.close();
@@ -87,21 +128,7 @@ void Connection_Manager() {
   }
   Serial.println("AP Name: " + Hostname.Val);
 
-  // Access point on the channel of the home network: one radio, both must use the same channel
-  // (with the default channel 1 a device joining the access point could move the radio and drop the station)
-  int apChannel = WiFi.status() == WL_CONNECTED ? WiFi.channel() : 1;
-  bool apProtected = ApPassword.Val.length() > 0;
-  bool apStarted = WiFi.softAP(Hostname.Val.c_str(), apProtected ? ApPassword.Val.c_str() : nullptr, apChannel);
-  if (!apStarted) {
-    Serial.println("ERROR: access point not started");
-  } else if (apProtected) {
-    Serial.println("Access point " + WiFi.softAPSSID() + " protected (WPA2), channel " + String(WiFi.channel()) + ", ip " + WiFi.softAPIP().toString());
-  } else {
-    Serial.println("Access point " + WiFi.softAPSSID() + " open, channel " + String(WiFi.channel()) + ", ip " + WiFi.softAPIP().toString());
-    Serial.println("WARNING: access point without password, anyone nearby can change the settings");
-  }
-  mdns.begin(Hostname.Val, WiFi.localIP());
-  mdns.addService("http", "tcp", 80);
+  StartAccessPoint();
   WebUI_Begin();
 
   // Reset last connection time

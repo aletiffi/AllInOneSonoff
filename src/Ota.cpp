@@ -191,6 +191,8 @@ static void InstallFirmware(const char* binUrl) {
   }
 
 #if OTA_SIGNING
+  // 0 = public key not parsed: every update would be refused
+  Serial.println("OTA: signature key " + String(signVerifier.length() * 8) + " bit");
   Update.installSignature(&signHash, &signVerifier);
   // The RSA verification needs the second stack also with http urls
   stack_thunk_add_ref();
@@ -200,8 +202,12 @@ static void InstallFirmware(const char* binUrl) {
   ESPhttpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
   ESPhttpUpdate.setLedPin(SONOFF_LED, LOW);
   ESPhttpUpdate.rebootOnUpdate(true);
+  Network_PauseAccessPoint();
   Serial.println("OTA: downloading firmware (free heap " + String(ESP.getFreeHeap()) + ")");
   t_httpUpdate_return ret = ESPhttpUpdate.update(*client, resolved, FW_VERSION);
+  // Reached only if the update failed (on success the device restarts)
+  Network_ResumeAccessPoint();
+  Serial.println("OTA: free heap " + String(ESP.getFreeHeap()) + ", largest block " + String(ESP.getMaxFreeBlockSize()) + " after the failed update");
 
 #if OTA_SIGNING
   stack_thunk_del_ref();
