@@ -119,8 +119,9 @@ The first flash must be done by cable. All the following updates can be done ove
 | Field | Required? | What to put |
 |---|---|---|
 | Device mode | yes | **Switch** or **LedStrip** |
-| Hostname | recommended | Device name, e.g. `Cucina`. Also used as the name in Home Assistant and in the MQTT topics |
-| Ssid / Password | yes | Name and password of your home WiFi |
+| Device name | recommended | E.g. `Cucina`. It's the name of the Sonoff's own WiFi network (access point) and the name in Home Assistant and in the MQTT topics |
+| Access point password | recommended | Password (8-20 characters) of the Sonoff's own WiFi network. Without it the network is open and anyone nearby can change the settings |
+| Home WiFi name / password | yes | Name (Ssid) and password of your home WiFi |
 | MQTT Server | for Home Assistant | IP address of the MQTT broker, e.g. `192.168.1.10` (or `192.168.1.10:1883`) |
 | MQTT User / Password | if the broker requires them | User created for MQTT (see [section 7](#7-home-assistant)) |
 | MQTT command/state topic | no | Leave empty: the defaults are `sonoff/<hostname>/set` and `sonoff/<hostname>/state` |
@@ -129,7 +130,7 @@ The first flash must be done by cable. All the following updates can be done ove
 4. Press **Save Settings**. The Sonoff connects to your WiFi. When it's connected, the Sonoff's led stays on.
 5. From now on the page is at `http://<hostname>.local` (e.g. `http://cucina.local`) or at the IP assigned by the router.
 
-Empty fields don't overwrite the saved values: you can change one field only and leave the others empty. To delete a custom update url (and go back to GitHub), enter `-`. When you change the mode the Sonoff restarts by itself.
+When you open the page the fields show the saved settings: change what you need and save (an emptied field is deleted). Passwords are never shown: the field says *saved* when one is set, leave it empty to keep it or enter `-` to remove it (MQTT and access point password). If you forget the access point password, the page is still reachable from the home WiFi; otherwise clean the EEPROM with the button (8 blinks, see [section 6](#6-daily-use-web-page-and-button)). When you change the mode the Sonoff restarts by itself.
 
 <p align="center"><img src="img/Settings.PNG" alt="Settings"/></p>
 

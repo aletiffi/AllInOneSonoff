@@ -11,22 +11,30 @@ static bool ledStripStarted          = false;
 static int effectSelected            = EFFECT_SOLID;
 static uint8_t randomEffectStep      = 0;
 static unsigned long lastTimeRgbPlay = 0;
+static unsigned long lastEffectPublish = 0;
+
+// During an effect the color changes every 250 ms: it is published (and logged) at most this often,
+// so Home Assistant follows the color without flooding MQTT and its database
+#define T_EFFECT_PUBLISH          T_5S
 
 static uint8_t RandomByte(uint8_t n) {
   return (uint8_t) random(0, n);
 }
 
-static void SetLedStrip(byte red, byte green, byte blue, byte brightness) {
+// effectStep: automatic step of an effect (publication limited), otherwise a requested change (always published)
+static void SetLedStrip(byte red, byte green, byte blue, byte brightness, bool effectStep = false) {
   if (!ledStripStarted) {
     return;
   }
   fill_solid(leds, NUM_LEDS, CRGB(red, green, blue));
   FastLED.setBrightness(brightness);
   FastLED.show();
-  Serial.println("LedStrip updated -> R:" + String(red) + " G:" + String(green) + " B:" + String(blue) + " Brightness:" + String(brightness));
-  if (effectSelected == EFFECT_SOLID) {
-    PublishState();
+  if (effectStep && millis() - lastEffectPublish < T_EFFECT_PUBLISH) {
+    return;
   }
+  lastEffectPublish = millis();
+  Serial.println("LedStrip updated -> R:" + String(red) + " G:" + String(green) + " B:" + String(blue) + " Brightness:" + String(brightness));
+  PublishState();
 }
 
 static void RgbEffectPlay() {
@@ -38,7 +46,7 @@ static void RgbEffectPlay() {
   Red.Val = color.r;
   Green.Val = color.g;
   Blue.Val = color.b;
-  SetLedStrip(Red.Val, Green.Val, Blue.Val, Brightness.Val);
+  SetLedStrip(Red.Val, Green.Val, Blue.Val, Brightness.Val, true);
 }
 
 void LedStrip_Begin() {

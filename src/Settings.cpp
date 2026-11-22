@@ -19,6 +19,8 @@ WifiSetup MqttPassword            = {"MQTT_Password", ""};
 WifiSetup OtaUrl                  = {"OTA_URL", ""};
 // Appended last so that the EEPROM layout of previous firmwares stays valid
 WifiSetup DeviceMode              = {"Device_Mode", ""};
+// Appended last; in RAM the plain password, in the EEPROM with a marker (see SettingsLogic.h)
+WifiSetup ApPassword              = {"AP_Password", ""};
 
 WifiSetup* WifiSettings[NUM_WIFI_SETTINGS] = {
   &Hostname,
@@ -30,7 +32,8 @@ WifiSetup* WifiSettings[NUM_WIFI_SETTINGS] = {
   &MqttUser,
   &MqttPassword,
   &OtaUrl,
-  &DeviceMode};
+  &DeviceMode,
+  &ApPassword};
 
 Setting SwitchState               = {"SwitchState", 0};
 Setting Red                       = {"Red", MAX_RGB_VAL};
@@ -58,8 +61,20 @@ const char* DeviceModeName() {
 void SaveSettingsInEeprom() {
   mem.resetWriteCounter();
   for (byte i = 0; i < NUM_WIFI_SETTINGS; i++) {
-    mem.write(mem.getLastWrittenByte(), WifiSettings[i]->Val);
+    if (WifiSettings[i] == &ApPassword) {
+      char stored[MAX_LENGTH_SETTING + 2];
+      settings_encode_ap_password(ApPassword.Val.c_str(), stored, sizeof(stored));
+      mem.write(mem.getLastWrittenByte(), String(stored));
+    } else {
+      mem.write(mem.getLastWrittenByte(), WifiSettings[i]->Val);
+    }
   }
+}
+
+void Settings_UpdateFlags() {
+  // Only the server is required: topics have defaults, user and password are optional
+  mqttConfigured = MqttServer.Val.length() > 0;
+  wifiConfigured = Ssid.Val.length() > 0 && Password.Val.length() > 0;
 }
 
 void LoadSettingsFromEeprom() {
@@ -67,14 +82,18 @@ void LoadSettingsFromEeprom() {
   mem.resetReadCounter();
   for (byte i = 0; i < NUM_WIFI_SETTINGS; i++) {
     WifiSettings[i]->Val = mem.read(mem.getLastReadedByte());
+    if (WifiSettings[i] == &ApPassword) {
+      char pwd[MAX_LENGTH_SETTING + 1];
+      settings_decode_ap_password(ApPassword.Val.c_str(), MAX_LENGTH_SETTING, pwd, sizeof(pwd));
+      ApPassword.Val = pwd;
+    }
     // Passwords are not printed
-    bool secret = (WifiSettings[i] == &Password || WifiSettings[i] == &MqttPassword) && WifiSettings[i]->Val.length() > 0;
+    bool secret = (WifiSettings[i] == &Password || WifiSettings[i] == &MqttPassword || WifiSettings[i] == &ApPassword) &&
+                  WifiSettings[i]->Val.length() > 0;
     Serial.println(WifiSettings[i]->Name + ": " + (secret ? "****" : WifiSettings[i]->Val));
   }
 
-  // Only the server is required: topics have defaults, user and password are optional
-  mqttConfigured = MqttServer.Val.length() > 0;
-  wifiConfigured = Ssid.Val.length() > 0 && Password.Val.length() > 0;
+  Settings_UpdateFlags();
 
   // Empty or unknown mode (e.g. EEPROM written by an old firmware) -> Switch
   deviceMode = settings_parse_mode(DeviceMode.Val.c_str());

@@ -26,11 +26,8 @@ void Switch_On() {
       // Power supply delay
       delay(T_1S);
     }
-    // Also publishes the state with the solid effect
+    // Also publishes the state
     LedStrip_Show();
-    if (LedStrip_Effect() != EFFECT_SOLID) {
-      PublishState();
-    }
   } else {
     Rele.On();
     SwitchState.Val = 1;
