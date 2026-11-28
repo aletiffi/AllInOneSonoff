@@ -3,7 +3,7 @@
 Firmware for the **Sonoff Basic R1** (ESP8266) and **R2** (ESP8285) that turns it into **a relay switch** or **an RGB led strip controller**. You choose the mode from a web page, and you can switch between them at any time.
 
 - **Switch**: the Sonoff turns a light bulb, socket or other load on and off. You can control it from the wall switch, the Sonoff button, the web page, MQTT or Home Assistant.
-- **LedStrip**: the Sonoff powers a **WS2812B** strip through its relay and controls it on the free pin (GPIO14 on the R1, GPIO2 on the R2): color, brightness, effects.
+- **LedStrip**: the Sonoff powers a **WS2812B** strip through its relay and controls it on GPIO14: color, brightness, effects. **Basic R1 only.**
 
 What it can do:
 - built-in web page for configuration and control, which also works without a WiFi network (access point mode);
@@ -54,7 +54,7 @@ The Sonoff has one **free pin**, set by the *Sonoff model* setting in the web pa
 | Model | Free pin |
 |---|---|
 | Basic R1 | **GPIO14**, on the 5-pin header |
-| Basic R2 | **GPIO2**, the pad labeled **IO2** (no pull-up resistor on the board) |
+| Basic R2 | **GPIO2**, the pad labeled **IO2** (no pull-up resistor on the board). **Switch mode only** |
 
 The free pin has a different job depending on the mode:
 
@@ -74,7 +74,7 @@ Every time the switch changes position (up or down) the relay flips its state. T
 **LedStrip mode:**
 - Sonoff L/N output → power supply input (the Sonoff turns the supply off when the strip is off);
 - 5 V power supply → strip +5V and GND;
-- Sonoff free pin (GPIO14 / GPIO2) → strip DIN; Sonoff GND → strip GND (a common ground is required).
+- Sonoff GPIO14 → strip DIN (R1 only); Sonoff GND → strip GND (a common ground is required).
 - Default setup: 33 leds, BRG color order. To change them, edit `NUM_LEDS` in `include/Config.h` and `BRG` in `src/LedStrip.cpp`. If red and blue come out swapped, use `RGB` or `GRB`.
 
 ## 3. Installing the software (VS Code + PlatformIO)
@@ -127,7 +127,7 @@ The first flash must be done by cable. All the following updates can be done ove
 
 | Field | Required? | What to put |
 |---|---|---|
-| Sonoff model | yes | **Basic R1** (free pin GPIO14) or **Basic R2** (free pin GPIO2) |
+| Sonoff model | yes | **Basic R1** (free pin GPIO14) or **Basic R2** (free pin GPIO2, Switch mode only) |
 | Device mode | yes | **Switch** or **LedStrip** |
 | Device name | recommended | E.g. `Cucina`. It's the name of the Sonoff's own WiFi network (access point) and the name in Home Assistant and in the MQTT topics |
 | Access point password | recommended | Password (8-20 characters) of the Sonoff's own WiFi network. Without it the network is open and anyone nearby can change the settings |

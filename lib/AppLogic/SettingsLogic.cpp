@@ -39,6 +39,18 @@ const char* settings_model_name(SonoffModels model) {
   return model == SONOFF_R2 ? MODEL_R2 : MODEL_R1;
 }
 
+bool settings_model_supports_ledstrip(SonoffModels model) {
+  return model == SONOFF_R1;
+}
+
+DeviceModes settings_effective_mode(const char* mode, const char* model) {
+  DeviceModes parsed = settings_parse_mode(mode);
+  if (parsed == LEDSTRIP_MODE && !settings_model_supports_ledstrip(settings_parse_model(model))) {
+    return SWITCH_MODE;
+  }
+  return parsed;
+}
+
 bool settings_model_change_requires_restart(const char* oldModel, const char* newModel) {
   return settings_parse_model(oldModel) != settings_parse_model(newModel);
 }
