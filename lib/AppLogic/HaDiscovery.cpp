@@ -55,7 +55,10 @@ size_t ha_build_device_discovery(const HaDeviceInfo* dev, char* out, size_t outS
   device["ids"].add(dev->uniqueId);
   device["name"] = dev->name;
   device["mf"] = "ITEAD Sonoff";
-  device["mdl"] = dev->ledstrip ? "Basic R1 - LedStrip" : "Basic R1 - Switch";
+  // Copied by ArduinoJson (char array, not a const char*)
+  char model[40];
+  snprintf(model, sizeof(model), "Basic %s - %s", dev->model ? dev->model : "R1", dev->ledstrip ? "LedStrip" : "Switch");
+  device["mdl"] = model;
   device["sw"] = dev->fwVersion;
   if (dev->configUrl && *dev->configUrl) {
     device["cu"] = dev->configUrl;

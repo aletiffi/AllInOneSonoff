@@ -20,9 +20,10 @@ void setup() {
   Serial.println("\n----------------------");
   Serial.println("Application ver. " FW_VERSION " running!");
 
-  // The device mode is needed before configuring GPIO14
+  // The device mode and the model are needed before configuring the free pin
   LoadSettingsFromEeprom();
   Serial.println("Device mode: " + String(DeviceModeName()));
+  Serial.println("Model: Sonoff Basic " + String(SonoffModelName()) + ", free pin GPIO" + String(Device_IoPin()));
 
   if (deviceMode == LEDSTRIP_MODE) {
     LedStrip_Begin();

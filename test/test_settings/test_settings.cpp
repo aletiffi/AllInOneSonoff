@@ -18,6 +18,30 @@ static void test_byte_number() {
   TEST_ASSERT_FALSE(settings_is_byte_number(NULL));
 }
 
+static void test_parse_model() {
+  TEST_ASSERT_EQUAL_INT(SONOFF_R2, settings_parse_model("R2"));
+  TEST_ASSERT_EQUAL_INT(SONOFF_R1, settings_parse_model("R1"));
+  // Never saved or leftovers of an old firmware in the EEPROM -> R1
+  TEST_ASSERT_EQUAL_INT(SONOFF_R1, settings_parse_model(""));
+  TEST_ASSERT_EQUAL_INT(SONOFF_R1, settings_parse_model("r2"));
+  TEST_ASSERT_EQUAL_INT(SONOFF_R1, settings_parse_model("R2x"));
+  TEST_ASSERT_EQUAL_INT(SONOFF_R1, settings_parse_model(NULL));
+  TEST_ASSERT_EQUAL_STRING("R1", settings_model_name(SONOFF_R1));
+  TEST_ASSERT_EQUAL_STRING("R2", settings_model_name(SONOFF_R2));
+  TEST_ASSERT_TRUE(settings_is_known_model("R1"));
+  TEST_ASSERT_TRUE(settings_is_known_model("R2"));
+  TEST_ASSERT_FALSE(settings_is_known_model(""));
+  TEST_ASSERT_FALSE(settings_is_known_model("R3"));
+  TEST_ASSERT_FALSE(settings_is_known_model(NULL));
+}
+
+static void test_model_change_requires_restart() {
+  TEST_ASSERT_TRUE(settings_model_change_requires_restart("R1", "R2"));
+  TEST_ASSERT_TRUE(settings_model_change_requires_restart("", "R2"));
+  TEST_ASSERT_FALSE(settings_model_change_requires_restart("", "R1"));
+  TEST_ASSERT_FALSE(settings_model_change_requires_restart("R2", "R2"));
+}
+
 static void test_parse_mode() {
   TEST_ASSERT_EQUAL_INT(LEDSTRIP_MODE, settings_parse_mode("LedStrip"));
   TEST_ASSERT_EQUAL_INT(SWITCH_MODE, settings_parse_mode("Switch"));
@@ -123,6 +147,8 @@ int runUnityTests() {
   UNITY_BEGIN();
   RUN_TEST(test_byte_number);
   RUN_TEST(test_parse_mode);
+  RUN_TEST(test_parse_model);
+  RUN_TEST(test_model_change_requires_restart);
   RUN_TEST(test_mode_change_restart);
   RUN_TEST(test_sanitize);
   RUN_TEST(test_sanitize_clear);

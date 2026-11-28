@@ -5,7 +5,7 @@
 #include <StoreStrings.h>
 #include <SettingsLogic.h>
 
-#define NUM_WIFI_SETTINGS         11
+#define NUM_WIFI_SETTINGS         12
 #define NUM_STATE_SETTINGS        5
 
 struct WifiSetup {
@@ -30,6 +30,7 @@ extern WifiSetup MqttPassword;
 extern WifiSetup OtaUrl;
 extern WifiSetup DeviceMode;
 extern WifiSetup ApPassword;
+extern WifiSetup SonoffModel;
 extern WifiSetup* WifiSettings[NUM_WIFI_SETTINGS];
 
 // Last state saved in the second EEPROM partition
@@ -42,6 +43,7 @@ extern Setting* StateSettings[NUM_STATE_SETTINGS];
 
 extern StoreStrings mem;
 extern DeviceModes deviceMode;
+extern SonoffModels sonoffModel;
 extern bool wifiConfigured;
 extern bool mqttConfigured;
 
@@ -53,5 +55,7 @@ void Settings_UpdateFlags();
 void SaveStateInEeprom();
 void LoadStateFromEeprom();
 const char* DeviceModeName();
+// "R1" or "R2"
+const char* SonoffModelName();
 
 #endif

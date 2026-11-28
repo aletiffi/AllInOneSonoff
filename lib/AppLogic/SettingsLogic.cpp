@@ -27,6 +27,22 @@ const char* settings_mode_name(DeviceModes mode) {
   return mode == LEDSTRIP_MODE ? MODE_LEDSTRIP : MODE_SWITCH;
 }
 
+bool settings_is_known_model(const char* model) {
+  return model && (strcmp(model, MODEL_R1) == 0 || strcmp(model, MODEL_R2) == 0);
+}
+
+SonoffModels settings_parse_model(const char* model) {
+  return (model && strcmp(model, MODEL_R2) == 0) ? SONOFF_R2 : SONOFF_R1;
+}
+
+const char* settings_model_name(SonoffModels model) {
+  return model == SONOFF_R2 ? MODEL_R2 : MODEL_R1;
+}
+
+bool settings_model_change_requires_restart(const char* oldModel, const char* newModel) {
+  return settings_parse_model(oldModel) != settings_parse_model(newModel);
+}
+
 bool settings_mode_change_requires_restart(const char* oldMode, const char* newMode) {
   return settings_parse_mode(oldMode) != settings_parse_mode(newMode);
 }

@@ -50,8 +50,13 @@ static void RgbEffectPlay() {
 }
 
 void LedStrip_Begin() {
-  pinMode(SONOFF_GPIO14, OUTPUT);
-  FastLED.addLeds<WS2811, SONOFF_GPIO14, BRG>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
+  pinMode(Device_IoPin(), OUTPUT);
+  // FastLED wants the pin at compile time: one controller per model
+  if (sonoffModel == SONOFF_R2) {
+    FastLED.addLeds<WS2811, SONOFF_R2_IO, BRG>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
+  } else {
+    FastLED.addLeds<WS2811, SONOFF_R1_IO, BRG>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
+  }
   FastLED.clear();
   FastLED.show();
   ledStripStarted = true;

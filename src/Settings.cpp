@@ -4,6 +4,7 @@
 StoreStrings mem(SETTIGNS_EEPROM_SIZE, STATE_EEPROM_SIZE);
 
 DeviceModes deviceMode            = SWITCH_MODE;
+SonoffModels sonoffModel          = SONOFF_R1;
 bool wifiConfigured               = false;
 bool mqttConfigured               = false;
 
@@ -21,6 +22,8 @@ WifiSetup OtaUrl                  = {"OTA_URL", ""};
 WifiSetup DeviceMode              = {"Device_Mode", ""};
 // Appended last; in RAM the plain password, in the EEPROM with a marker (see SettingsLogic.h)
 WifiSetup ApPassword              = {"AP_Password", ""};
+// Appended last: with the EEPROM of an old firmware it reads leftovers, only "R2" is accepted
+WifiSetup SonoffModel             = {"Sonoff_Model", ""};
 
 WifiSetup* WifiSettings[NUM_WIFI_SETTINGS] = {
   &Hostname,
@@ -33,7 +36,8 @@ WifiSetup* WifiSettings[NUM_WIFI_SETTINGS] = {
   &MqttPassword,
   &OtaUrl,
   &DeviceMode,
-  &ApPassword};
+  &ApPassword,
+  &SonoffModel};
 
 Setting SwitchState               = {"SwitchState", 0};
 Setting Red                       = {"Red", MAX_RGB_VAL};
@@ -56,6 +60,10 @@ void Settings_Begin() {
 
 const char* DeviceModeName() {
   return settings_mode_name(deviceMode);
+}
+
+const char* SonoffModelName() {
+  return settings_model_name(sonoffModel);
 }
 
 void SaveSettingsInEeprom() {
@@ -82,6 +90,10 @@ void LoadSettingsFromEeprom() {
   mem.resetReadCounter();
   for (byte i = 0; i < NUM_WIFI_SETTINGS; i++) {
     WifiSettings[i]->Val = mem.read(mem.getLastReadedByte());
+    if (WifiSettings[i] == &SonoffModel && !settings_is_known_model(SonoffModel.Val.c_str())) {
+      // Never saved (EEPROM of an old firmware or cleared): R1
+      SonoffModel.Val = "";
+    }
     if (WifiSettings[i] == &ApPassword) {
       char pwd[MAX_LENGTH_SETTING + 1];
       settings_decode_ap_password(ApPassword.Val.c_str(), MAX_LENGTH_SETTING, pwd, sizeof(pwd));
@@ -97,6 +109,7 @@ void LoadSettingsFromEeprom() {
 
   // Empty or unknown mode (e.g. EEPROM written by an old firmware) -> Switch
   deviceMode = settings_parse_mode(DeviceMode.Val.c_str());
+  sonoffModel = settings_parse_model(SonoffModel.Val.c_str());
 }
 
 void SaveStateInEeprom() {
