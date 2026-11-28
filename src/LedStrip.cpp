@@ -50,13 +50,10 @@ static void RgbEffectPlay() {
 }
 
 void LedStrip_Begin() {
-  pinMode(Device_IoPin(), OUTPUT);
-  // FastLED wants the pin at compile time: one controller per model
-  if (sonoffModel == SONOFF_R2) {
-    FastLED.addLeds<WS2811, SONOFF_R2_IO, BRG>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
-  } else {
-    FastLED.addLeds<WS2811, SONOFF_R1_IO, BRG>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
-  }
+  // R1 only (the R2 has no LedStrip mode). A single FastLED controller: with a second one for GPIO2
+  // in the firmware, even if never started, the WiFi of the R1 kept disconnecting (45.6.1.0)
+  pinMode(SONOFF_R1_IO, OUTPUT);
+  FastLED.addLeds<WS2811, SONOFF_R1_IO, BRG>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
   FastLED.clear();
   FastLED.show();
   ledStripStarted = true;

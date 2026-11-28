@@ -36,6 +36,10 @@ bool settings_is_known_model(const char* model);
 // Only "R2" is the R2: empty or anything else (e.g. leftovers of an old firmware in the EEPROM) -> R1
 SonoffModels settings_parse_model(const char* model);
 const char* settings_model_name(SonoffModels model);
+// LedStrip mode only on the R1 (single FastLED controller on GPIO14)
+bool settings_model_supports_ledstrip(SonoffModels model);
+// Saved mode and model -> mode to run: LedStrip on a model without it -> Switch
+DeviceModes settings_effective_mode(const char* mode, const char* model);
 // The free pin changes -> restart. Empty (old firmware) == R1
 bool settings_model_change_requires_restart(const char* oldModel, const char* newModel);
 

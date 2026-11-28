@@ -105,9 +105,9 @@ const char webPage[] PROGMEM = R"=====(
             <label for="Sonoff_Model">Sonoff model (free pin: GPIO14 on the R1, the IO2 pad on the R2)</label>
           </p>
           <p>
-            <select id="Sonoff_Model">
+            <select id="Sonoff_Model" onchange="updateModeOptions()">
               <option value="R1">Basic R1 (GPIO14)</option>
-              <option value="R2">Basic R2 (GPIO2)</option>
+              <option value="R2">Basic R2 (GPIO2, Switch mode only)</option>
             </select>
           </p>
           <p>
@@ -218,9 +218,20 @@ const char webPage[] PROGMEM = R"=====(
       var textIds = ["Hostname", "Ssid", "MQTT_Sub", "MQTT_Pub", "MQTT_Server", "MQTT_User", "OTA_URL"];
       var savedSettings = {};
 
+      // LedStrip mode only on the R1
+      function updateModeOptions() {
+        var r2 = document.getElementById("Sonoff_Model").value == "R2";
+        var mode = document.getElementById("Device_Mode");
+        mode.querySelector('option[value="LedStrip"]').disabled = r2;
+        if (r2 && mode.value == "LedStrip") {
+          mode.value = "Switch";
+        }
+      }
+
       function fillSettings(s) {
         savedSettings = s;
         document.getElementById("Sonoff_Model").value = s.Sonoff_Model || "R1";
+        updateModeOptions();
         for (var i = 0; i < textIds.length; i++) {
           document.getElementById(textIds[i]).value = s[textIds[i]] || "";
         }

@@ -108,8 +108,9 @@ void LoadSettingsFromEeprom() {
   Settings_UpdateFlags();
 
   // Empty or unknown mode (e.g. EEPROM written by an old firmware) -> Switch
-  deviceMode = settings_parse_mode(DeviceMode.Val.c_str());
   sonoffModel = settings_parse_model(SonoffModel.Val.c_str());
+  // LedStrip saved on an R2 -> Switch
+  deviceMode = settings_effective_mode(DeviceMode.Val.c_str(), SonoffModel.Val.c_str());
 }
 
 void SaveStateInEeprom() {

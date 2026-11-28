@@ -166,6 +166,10 @@ static void ChangeSettings() {
   if (!settings_is_known_model(SonoffModel.Val.c_str())) {
     SonoffModel.Val = oldModel;
   }
+  // No LedStrip mode on the R2
+  if (settings_effective_mode(DeviceMode.Val.c_str(), SonoffModel.Val.c_str()) != settings_parse_mode(DeviceMode.Val.c_str())) {
+    DeviceMode.Val = MODE_SWITCH;
+  }
   // WPA2 needs at least 8 characters: an invalid password is not saved (nothing else is saved either)
   if (ApPassword.Val.length() > 0 && !settings_is_valid_ap_password(ApPassword.Val.c_str(), MAX_LENGTH_SETTING)) {
     LoadSettingsFromEeprom();

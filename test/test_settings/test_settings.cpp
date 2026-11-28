@@ -35,6 +35,16 @@ static void test_parse_model() {
   TEST_ASSERT_FALSE(settings_is_known_model(NULL));
 }
 
+static void test_effective_mode() {
+  TEST_ASSERT_TRUE(settings_model_supports_ledstrip(SONOFF_R1));
+  TEST_ASSERT_FALSE(settings_model_supports_ledstrip(SONOFF_R2));
+  TEST_ASSERT_EQUAL_INT(LEDSTRIP_MODE, settings_effective_mode("LedStrip", "R1"));
+  TEST_ASSERT_EQUAL_INT(LEDSTRIP_MODE, settings_effective_mode("LedStrip", ""));
+  TEST_ASSERT_EQUAL_INT(SWITCH_MODE, settings_effective_mode("LedStrip", "R2"));
+  TEST_ASSERT_EQUAL_INT(SWITCH_MODE, settings_effective_mode("Switch", "R2"));
+  TEST_ASSERT_EQUAL_INT(SWITCH_MODE, settings_effective_mode("", "R1"));
+}
+
 static void test_model_change_requires_restart() {
   TEST_ASSERT_TRUE(settings_model_change_requires_restart("R1", "R2"));
   TEST_ASSERT_TRUE(settings_model_change_requires_restart("", "R2"));
@@ -149,6 +159,7 @@ int runUnityTests() {
   RUN_TEST(test_parse_mode);
   RUN_TEST(test_parse_model);
   RUN_TEST(test_model_change_requires_restart);
+  RUN_TEST(test_effective_mode);
   RUN_TEST(test_mode_change_restart);
   RUN_TEST(test_sanitize);
   RUN_TEST(test_sanitize_clear);

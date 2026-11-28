@@ -3,7 +3,7 @@
 
 #include <Arduino.h>
 
-// LedStrip mode: ws2812b strip on the free pin (GPIO14 on the R1, GPIO2 on the R2), color and brightness are in Settings (Red, Green, Blue, Brightness)
+// LedStrip mode: ws2812b strip on GPIO14, Sonoff Basic R1 only, color and brightness are in Settings (Red, Green, Blue, Brightness)
 void LedStrip_Begin();
 void LedStrip_Loop();
 void LedStrip_Show();
