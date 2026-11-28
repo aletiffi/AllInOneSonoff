@@ -33,8 +33,12 @@ static BearSSL::SigningVerifier signVerifier(&signPubKey);
 // Memory needed by a TLS connection (BearSSL): ~17 KB contiguous receive buffer (github doesn't support
 // MFLN) + second stack, context and certificate validator. Below these values the connection fails or
 // BearSSL aborts (OOM), even with enough free memory but fragmented
+// Checked before the connection: 20648 contiguous bytes were not enough (the redirect buffers come first),
+// the checks worked with 23360 and more
 #define OTA_TLS_MIN_FREE          26624
-#define OTA_TLS_MIN_BLOCK         18432
+#define OTA_TLS_MIN_BLOCK         22528
+// After a failed TLS connection: a largest block this small means the memory ran out during the handshake
+#define OTA_TLS_OOM_BLOCK         4096
 #define OTA_CONNECT_ATTEMPTS      3
 // RTC user memory, kept across a software restart (words 0-31 are used by eboot for the OTA)
 #define OTA_RTC_OFFSET            64
@@ -45,6 +49,8 @@ static bool otaRequested           = false;
 static bool requestAfterRestart    = false;
 static String otaStatus            = "Never checked";
 static String latestVersion        = "";
+// The last TLS connection failed because the memory ran out: a restart frees it
+static bool tlsOutOfMemory         = false;
 
 static std::unique_ptr<WiFiClient> MakeClient(const char* url) {
   if (ota_is_https(url)) {
@@ -109,6 +115,12 @@ static bool ResolveUrl(const char* url, String& finalUrl) {
           Serial.println("OTA: connection attempt " + String(attempt) + " failed: WiFi status " + String(WiFi.status()) +
                          ", RSSI " + String(WiFi.RSSI()) + ", free heap " + String(ESP.getFreeHeap()) +
                          ", largest block " + String(ESP.getMaxFreeBlockSize()) + ", TLS error " + String(sslError));
+          if (https && ESP.getMaxFreeBlockSize() < OTA_TLS_OOM_BLOCK) {
+            // Out of memory: the next attempts would fail the same way
+            tlsOutOfMemory = true;
+            client->stop();
+            break;
+          }
           client->stop();
           if (attempt < OTA_CONNECT_ATTEMPTS) {
             delay(T_1S);
@@ -281,6 +293,7 @@ void Ota_Check() {
   bool canRestart = !requestAfterRestart;
   otaRequested = false;
   requestAfterRestart = false;
+  tlsOutOfMemory = false;
 
   const char* url = ota_effective_url(OtaUrl.Val.c_str(), OTA_DEFAULT_URL);
   if (url == NULL) {
@@ -328,6 +341,11 @@ void Ota_Check() {
       // Returns only if the update failed (on success the device restarts)
       InstallFirmware(binUrl);
     }
+  }
+  if (tlsOutOfMemory && canRestart) {
+    // The memory check passed but the fragmentation was too much for a handshake (manifest or firmware)
+    SetStatus("Not enough memory, restarting to check");
+    RestartForCheck();
   }
   Network_ResumeAccessPoint();
 }
