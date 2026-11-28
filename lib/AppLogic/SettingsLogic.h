@@ -10,6 +10,12 @@
 
 enum DeviceModes { SWITCH_MODE, LEDSTRIP_MODE };
 
+// Sonoff Basic model, chosen in the web page: it decides the free pin (GPIO14 on the R1, GPIO2 on the R2)
+#define MODEL_R1                  "R1"
+#define MODEL_R2                  "R2"
+
+enum SonoffModels { SONOFF_R1, SONOFF_R2 };
+
 enum SettingAction {
   SETTING_KEEP,                   // Empty value: the saved value is kept
   SETTING_SET,                    // out contains the new value
@@ -25,6 +31,13 @@ DeviceModes settings_parse_mode(const char* mode);
 const char* settings_mode_name(DeviceModes mode);
 // GPIO14 changes function -> restart. Empty (old firmware) == Switch
 bool settings_mode_change_requires_restart(const char* oldMode, const char* newMode);
+
+bool settings_is_known_model(const char* model);
+// Only "R2" is the R2: empty or anything else (e.g. leftovers of an old firmware in the EEPROM) -> R1
+SonoffModels settings_parse_model(const char* model);
+const char* settings_model_name(SonoffModels model);
+// The free pin changes -> restart. Empty (old firmware) == R1
+bool settings_model_change_requires_restart(const char* oldModel, const char* newModel);
 
 // Value received from the web page: trimmed and truncated to maxLen
 SettingAction settings_sanitize(const char* in, bool allowClear, size_t maxLen, char* out, size_t outSize);

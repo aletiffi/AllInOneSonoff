@@ -11,12 +11,14 @@
 #endif
 #define DEFAULT_AP_NAME           "SonoffAllInOne"
 //----------------------------------------------------------------------------
-// Sonoff r1 pins
+// Sonoff Basic pins (same on R1 and R2, see doc/GPIO_note.txt)
 //----------------------------------------------------------------------------
 #define SONOFF_BUTTON             0
 #define SONOFF_RELAY              12
 #define SONOFF_LED                13
-#define SONOFF_GPIO14             14          // Wall switch input (Switch mode) or ledstrip data (LedStrip mode)
+// Free pin: wall switch input (Switch mode) or ledstrip data (LedStrip mode), from the Sonoff_Model setting
+#define SONOFF_R1_IO              14          // R1: GPIO14 on the 5-pin header
+#define SONOFF_R2_IO              2           // R2: GPIO2, pad labeled IO2, no pull-up resistor
 //----------------------------------------------------------------------------
 #define OFF_RELAY                 LOW
 #define OFF_LED                   HIGH

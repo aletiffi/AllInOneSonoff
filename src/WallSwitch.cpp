@@ -8,8 +8,8 @@ static ReadInput* wallSwitch = nullptr;
 static bool switchStatePre  = false;
 
 void WallSwitch_Begin() {
-  // Created here so that GPIO14 is configured only in Switch mode
-  wallSwitch = new ReadInput(SONOFF_GPIO14);
+  // Created here so that the free pin is configured only in Switch mode
+  wallSwitch = new ReadInput(Device_IoPin());
   switchStatePre = wallSwitch->State();
 }
 

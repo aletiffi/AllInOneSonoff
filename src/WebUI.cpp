@@ -45,6 +45,7 @@ static void SendInfo() {
   doc["mode"] = DeviceModeName();
   doc["hostname"] = Hostname.Val;
   doc["version"] = FW_VERSION;
+  doc["model"] = SonoffModelName();
   doc["state"] = IsOn() ? ON_PAYLOAD : OFF_PAYLOAD;
   doc["ota_url"] = Ota_ManifestUrl();
   doc["ota_url_default"] = Ota_ManifestUrl() == OTA_DEFAULT_URL;
@@ -59,6 +60,7 @@ static void SendInfo() {
   // Saved settings for the fields of the page; passwords never sent, only whether they are set
   JsonObject s = doc.createNestedObject("settings");
   s["Hostname"] = Hostname.Val;
+  s["Sonoff_Model"] = SonoffModelName();
   s["Ssid"] = Ssid.Val;
   s["MQTT_Sub"] = MqttSubTopic.Val;
   s["MQTT_Pub"] = MqttPubTopic.Val;
@@ -123,6 +125,7 @@ static void ChangeSettings() {
   StaticJsonDocument <768> doc;
   String data = server.arg("plain");
   String oldMode = DeviceMode.Val;
+  String oldModel = SonoffModel.Val;
   String oldValues[NUM_WIFI_SETTINGS];
   for (byte i = 0; i < NUM_WIFI_SETTINGS; i++) {
     oldValues[i] = WifiSettings[i]->Val;
@@ -141,7 +144,7 @@ static void ChangeSettings() {
         // Empty = keep the saved value (an old or partially loaded page can never delete settings),
         // "-" = delete: sent by the page for the fields emptied by the user. Not for the WiFi password
         // (needed to connect) nor for the mode (validated below)
-        bool allowClear = WifiSettings[i] != &Password && WifiSettings[i] != &DeviceMode;
+        bool allowClear = WifiSettings[i] != &Password && WifiSettings[i] != &DeviceMode && WifiSettings[i] != &SonoffModel;
         char val[MAX_LENGTH_URL + 1];
         switch (settings_sanitize(kv.value().as<const char*>(), allowClear, isUrl ? MAX_LENGTH_URL : MAX_LENGTH_SETTING, val, sizeof(val))) {
           case SETTING_SET:
@@ -159,6 +162,9 @@ static void ChangeSettings() {
   // Only known modes are accepted
   if (!settings_is_known_mode(DeviceMode.Val.c_str())) {
     DeviceMode.Val = oldMode;
+  }
+  if (!settings_is_known_model(SonoffModel.Val.c_str())) {
+    SonoffModel.Val = oldModel;
   }
   // WPA2 needs at least 8 characters: an invalid password is not saved (nothing else is saved either)
   if (ApPassword.Val.length() > 0 && !settings_is_valid_ap_password(ApPassword.Val.c_str(), MAX_LENGTH_SETTING)) {
@@ -179,9 +185,10 @@ static void ChangeSettings() {
   }
   Serial.println("Settings changed: " + (changed.length() > 0 ? changed : String("none")));
 
-  if (settings_mode_change_requires_restart(oldMode.c_str(), DeviceMode.Val.c_str())) {
-    // GPIO14 changes function: a restart is required
-    Serial.println("Device mode changed to " + DeviceMode.Val);
+  bool modelChanged = settings_model_change_requires_restart(oldModel.c_str(), SonoffModel.Val.c_str());
+  if (settings_mode_change_requires_restart(oldMode.c_str(), DeviceMode.Val.c_str()) || modelChanged) {
+    // The free pin changes function or position: a restart is required
+    Serial.println("Device mode " + DeviceMode.Val + ", model " + SonoffModel.Val + ": restarting");
     Switch_Off();
     Restart();
   }

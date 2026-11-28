@@ -49,7 +49,7 @@ static void PublishDiscovery() {
   char topic[96];
   String configUrl = "http://" + WiFi.localIP().toString() + "/";
   HaDeviceInfo dev = {uniqueId.c_str(), Hostname.Val.c_str(), baseTopic.c_str(), commandTopic.c_str(), stateTopic.c_str(),
-                      deviceMode == LEDSTRIP_MODE, FW_VERSION, configUrl.c_str()};
+                      deviceMode == LEDSTRIP_MODE, FW_VERSION, configUrl.c_str(), SonoffModelName()};
 
   ha_discovery_topic(uniqueId.c_str(), topic, sizeof(topic));
   if (ha_build_device_discovery(&dev, payload, sizeof(payload)) == 0) {

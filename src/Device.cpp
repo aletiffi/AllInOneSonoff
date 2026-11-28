@@ -14,6 +14,10 @@ void Device_Begin() {
   Led.Blink(T_100MS * 5, 1, T_100MS * 5);
 }
 
+uint8_t Device_IoPin() {
+  return sonoffModel == SONOFF_R2 ? SONOFF_R2_IO : SONOFF_R1_IO;
+}
+
 bool IsOn() {
   return Rele.State() != OFF_RELAY;
 }

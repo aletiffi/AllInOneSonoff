@@ -1,9 +1,9 @@
 # AllInOneSonoff
 
-Firmware for the **Sonoff Basic R1** (ESP8266) that turns it into **a relay switch** or **an RGB led strip controller**. You choose the mode from a web page, and you can switch between them at any time.
+Firmware for the **Sonoff Basic R1** (ESP8266) and **R2** (ESP8285) that turns it into **a relay switch** or **an RGB led strip controller**. You choose the mode from a web page, and you can switch between them at any time.
 
 - **Switch**: the Sonoff turns a light bulb, socket or other load on and off. You can control it from the wall switch, the Sonoff button, the web page, MQTT or Home Assistant.
-- **LedStrip**: the Sonoff powers a **WS2812B** strip through its relay and controls it on GPIO14: color, brightness, effects.
+- **LedStrip**: the Sonoff powers a **WS2812B** strip through its relay and controls it on the free pin (GPIO14 on the R1, GPIO2 on the R2): color, brightness, effects.
 
 What it can do:
 - built-in web page for configuration and control, which also works without a WiFi network (access point mode);
@@ -38,23 +38,32 @@ This project merges the old [SwitchSonoff](https://github.com/aletiffi/SwitchSon
 
 | Item | Notes |
 |---|---|
-| Sonoff Basic **R1** | Must have the 5-pin header (3V3, RX, TX, GND, GPIO14) |
+| Sonoff Basic **R1** or **R2** | R1: the 5-pin header (3V3, RX, TX, GND, GPIO14). R2: the 4-pin header (3V3, RX, TX, GND) plus the **IO2** pad (GPIO2) |
 | **3.3 V** USB-serial adapter | For example FTDI, CP2102 or CH340. **Set to 3.3 V, not 5 V**, or the ESP8266 will be damaged |
 | 4-5 female-female jumper wires | Plus a pin header to solder onto the Sonoff, if it doesn't have one |
 | *Switch mode:* a wall switch | A normal switch (not a push button) |
 | *LedStrip mode:* a WS2812B strip and a **5 V** power supply | About 60 mA per led at full white: 33 leds ≈ 2 A, so take a 3 A supply |
 | A PC with [VS Code](https://code.visualstudio.com/) | Windows, Linux or macOS |
 
-> ⚠️ **Mains safety.** The Sonoff runs on 230 V. **Never** connect the serial adapter while the Sonoff is plugged into mains, and never touch the board while it is powered. The low-voltage parts (GPIO14, GND, the led strip) are **not** guaranteed to be isolated from mains: install everything inside a closed box. If you're not sure, ask an electrician.
+> ⚠️ **Mains safety.** The Sonoff runs on 230 V. **Never** connect the serial adapter while the Sonoff is plugged into mains, and never touch the board while it is powered. The low-voltage parts (GPIO14/GPIO2, GND, the led strip) are **not** guaranteed to be isolated from mains: install everything inside a closed box. If you're not sure, ask an electrician.
 
 ## 2. Wiring
 
-The Sonoff's **GPIO14** has a different job depending on the mode:
+The Sonoff has one **free pin**, set by the *Sonoff model* setting in the web page (default R1):
 
-| Mode | GPIO14 | Relay (L/N output) |
+| Model | Free pin |
+|---|---|
+| Basic R1 | **GPIO14**, on the 5-pin header |
+| Basic R2 | **GPIO2**, the pad labeled **IO2** (no pull-up resistor on the board) |
+
+The free pin has a different job depending on the mode:
+
+| Mode | Free pin | Relay (L/N output) |
 |---|---|---|
-| Switch | Wall switch input: switch between GPIO14 and GND | Load (light bulb, socket...) |
+| Switch | Wall switch input: switch between the free pin and GND | Load (light bulb, socket...) |
 | LedStrip | Strip data line (DIN) | Mains input of the strip's 5 V power supply |
+
+> ⚠️ **R2 in Switch mode.** GPIO2 must be high when the Sonoff powers on: with the wall switch closed (free pin connected to GND) at power-on, the R2 may not start.
 
 **Switch mode:**
 
@@ -65,7 +74,7 @@ Every time the switch changes position (up or down) the relay flips its state. T
 **LedStrip mode:**
 - Sonoff L/N output → power supply input (the Sonoff turns the supply off when the strip is off);
 - 5 V power supply → strip +5V and GND;
-- Sonoff GPIO14 → strip DIN; Sonoff GND → strip GND (a common ground is required).
+- Sonoff free pin (GPIO14 / GPIO2) → strip DIN; Sonoff GND → strip GND (a common ground is required).
 - Default setup: 33 leds, BRG color order. To change them, edit `NUM_LEDS` in `include/Config.h` and `BRG` in `src/LedStrip.cpp`. If red and blue come out swapped, use `RGB` or `GRB`.
 
 ## 3. Installing the software (VS Code + PlatformIO)
@@ -118,6 +127,7 @@ The first flash must be done by cable. All the following updates can be done ove
 
 | Field | Required? | What to put |
 |---|---|---|
+| Sonoff model | yes | **Basic R1** (free pin GPIO14) or **Basic R2** (free pin GPIO2) |
 | Device mode | yes | **Switch** or **LedStrip** |
 | Device name | recommended | E.g. `Cucina`. It's the name of the Sonoff's own WiFi network (access point) and the name in Home Assistant and in the MQTT topics |
 | Access point password | recommended | Password (8-20 characters) of the Sonoff's own WiFi network. Without it the network is open and anyone nearby can change the settings |
@@ -130,13 +140,13 @@ The first flash must be done by cable. All the following updates can be done ove
 4. Press **Save Settings**. The Sonoff connects to your WiFi. When it's connected, the Sonoff's led stays on.
 5. From now on the page is at `http://<hostname>.local` (e.g. `http://cucina.local`) or at the IP assigned by the router.
 
-When you open the page the fields show the saved settings: change what you need and save (an emptied field is deleted). Passwords are never shown: the field says *saved* when one is set, leave it empty to keep it or enter `-` to remove it (MQTT and access point password). If you forget the access point password, the page is still reachable from the home WiFi; otherwise clean the EEPROM with the button (8 blinks, see [section 6](#6-daily-use-web-page-and-button)). When you change the mode the Sonoff restarts by itself.
+When you open the page the fields show the saved settings: change what you need and save (an emptied field is deleted). Passwords are never shown: the field says *saved* when one is set, leave it empty to keep it or enter `-` to remove it (MQTT and access point password). If you forget the access point password, the page is still reachable from the home WiFi; otherwise clean the EEPROM with the button (8 blinks, see [section 6](#6-daily-use-web-page-and-button)). When you change the mode or the model the Sonoff restarts by itself.
 
 <p align="center"><img src="img/Settings.PNG" alt="Settings"/></p>
 
 ## 6. Daily use: web page and button
 
-**Web page:** ON/OFF buttons. In LedStrip mode you also get color, brightness and effect (Solid = fixed color, Random = colors that change slowly). Under the title you see the mode, the state, the firmware version, the MQTT state and the topics in use.
+**Web page:** ON/OFF buttons. In LedStrip mode you also get color, brightness and effect (Solid = fixed color, Random = colors that change slowly). Under the title you see the model, the mode, the state, the firmware version, the MQTT state and the topics in use.
 
 **Integrated button:** hold it pressed. The led flashes once per second; release it after the number of flashes of the function you want:
 

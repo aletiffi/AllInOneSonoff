@@ -102,6 +102,15 @@ const char webPage[] PROGMEM = R"=====(
             </select>
           </p>
           <p>
+            <label for="Sonoff_Model">Sonoff model (free pin: GPIO14 on the R1, the IO2 pad on the R2)</label>
+          </p>
+          <p>
+            <select id="Sonoff_Model">
+              <option value="R1">Basic R1 (GPIO14)</option>
+              <option value="R2">Basic R2 (GPIO2)</option>
+            </select>
+          </p>
+          <p>
             <label for="Hostname">Device name (name of the access point, in Home Assistant and in the MQTT topics)</label>
           </p>
           <p>
@@ -211,6 +220,7 @@ const char webPage[] PROGMEM = R"=====(
 
       function fillSettings(s) {
         savedSettings = s;
+        document.getElementById("Sonoff_Model").value = s.Sonoff_Model || "R1";
         for (var i = 0; i < textIds.length; i++) {
           document.getElementById(textIds[i]).value = s[textIds[i]] || "";
         }
@@ -227,7 +237,7 @@ const char webPage[] PROGMEM = R"=====(
             currentMode = info.mode;
             document.getElementById("Device_Mode").value = info.mode;
             document.getElementById("title").innerText = info.hostname;
-            document.getElementById("info").innerText = info.mode + " mode - state " + info.state + " - fw " + info.version;
+            document.getElementById("info").innerText = "Sonoff " + info.model + " - " + info.mode + " mode - state " + info.state + " - fw " + info.version;
             document.getElementById("mqtt_info").innerText = "MQTT " + (info.mqtt_connected ? "connected" : "not connected") +
               " - id " + info.unique_id + " - command topic " + info.mqtt_command + " - state topic " + info.mqtt_state;
             document.getElementById("ota_status").innerText = "Update: " + info.ota_status +
@@ -310,7 +320,7 @@ const char webPage[] PROGMEM = R"=====(
 
       function save() {
         var ids = ["Hostname", "Ssid", "Password", "MQTT_Sub", "MQTT_Pub", "MQTT_Server",
-                   "MQTT_User", "MQTT_Password", "OTA_URL", "Device_Mode", "AP_Password"];
+                   "MQTT_User", "MQTT_Password", "OTA_URL", "Device_Mode", "AP_Password", "Sonoff_Model"];
         var data = {};
         for (var i = 0; i < ids.length; i++) {
           data[ids[i]] = document.getElementById(ids[i]).value;
@@ -332,6 +342,9 @@ const char webPage[] PROGMEM = R"=====(
         }
         if (data.Device_Mode != currentMode) {
           warnings.push("The device mode will change to " + data.Device_Mode + " and the device will restart.");
+        }
+        if (data.Sonoff_Model != (savedSettings.Sonoff_Model || "R1")) {
+          warnings.push("The model will change to " + data.Sonoff_Model + " and the device will restart.");
         }
         if (warnings.length > 0 && !confirmPress("savebtn", "save_status", warnings.join(" "))) {
           return;

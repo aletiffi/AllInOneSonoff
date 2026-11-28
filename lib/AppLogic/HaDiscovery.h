@@ -51,6 +51,7 @@ struct HaDeviceInfo {
   bool ledstrip;              // LedStrip mode -> light, Switch mode -> switch
   const char* fwVersion;
   const char* configUrl;      // device web page, "" if unknown
+  const char* model;          // "R1" or "R2"
 };
 
 // Lowercase letters, digits and '_' only: "Luce Cucina-1" -> "luce_cucina_1"

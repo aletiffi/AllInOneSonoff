@@ -11,7 +11,7 @@ void tearDown() {}
 
 static HaDeviceInfo Device(bool ledstrip) {
   HaDeviceInfo dev = {"sonoff_1a2b3c", "Cucina", "sonoff/cucina", "sonoff/cucina/set", "sonoff/cucina/state",
-                      ledstrip, "45.4.0.0", "http://192.168.1.20/"};
+                      ledstrip, "45.4.0.0", "http://192.168.1.20/", "R1"};
   return dev;
 }
 
@@ -125,6 +125,16 @@ static void test_discovery_ledstrip_mode() {
   TEST_ASSERT_EQUAL_STRING("Basic R1 - LedStrip", doc["dev"]["mdl"]);
 }
 
+static void test_discovery_model() {
+  static char out[MQTT_BUFFER];
+  HaDeviceInfo dev = Device(false);
+  dev.model = "R2";
+  TEST_ASSERT_TRUE(ha_build_device_discovery(&dev, out, sizeof(out)) > 0);
+  DynamicJsonDocument doc(8192);
+  TEST_ASSERT_FALSE(deserializeJson(doc, out));
+  TEST_ASSERT_EQUAL_STRING("Basic R2 - Switch", doc["dev"]["mdl"]);
+}
+
 static void test_discovery_buttons_update_sensors() {
   DynamicJsonDocument doc = Discovery(false);
   JsonObject cmps = doc["cmps"];
@@ -196,6 +206,7 @@ int runUnityTests() {
   RUN_TEST(test_discovery_unique_ids);
   RUN_TEST(test_discovery_switch_mode);
   RUN_TEST(test_discovery_ledstrip_mode);
+  RUN_TEST(test_discovery_model);
   RUN_TEST(test_discovery_buttons_update_sensors);
   RUN_TEST(test_discovery_without_config_url);
   RUN_TEST(test_discovery_buffer_too_small);
