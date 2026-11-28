@@ -5,6 +5,7 @@
 
 // Firmware update from a json manifest reachable at OtaUrl (http or https, Google Drive links supported).
 // OtaUrl empty -> OTA_DEFAULT_URL (latest GitHub release), "off" -> updates disabled.
+// Never automatic: the check runs only on request (Ota_Request: web page, Home Assistant, button).
 //   {"version": "45.4.0.0", "url": "https://.../AllInOneSonoff_v45.4.0.0.bin"}
 // The firmware is downloaded only if the manifest version is newer than FW_VERSION and,
 // if keys/public.key existed at build time, it is installed only if signed with keys/private.key.
