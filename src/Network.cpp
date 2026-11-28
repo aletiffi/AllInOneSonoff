@@ -53,6 +53,8 @@ static void StartAccessPoint() {
   int apChannel = WiFi.status() == WL_CONNECTED ? WiFi.channel() : 1;
   bool apProtected = ApPassword.Val.length() > 0;
   bool apStarted = WiFi.softAP(Hostname.Val.c_str(), apProtected ? ApPassword.Val.c_str() : nullptr, apChannel);
+  // softAP changes the WiFi mode (station -> station + access point)
+  ApplyRadioSettings();
   if (!apStarted) {
     Serial.println("ERROR: access point not started");
   } else if (apProtected) {
@@ -100,8 +102,13 @@ void Connection_Manager() {
   // Settings already in RAM: loaded at startup, updated by the web page
   delay(T_200MS);
 
-  // Without home WiFi configured: access point only (the station would only disturb it)
-  WiFi.mode(wifiConfigured ? WIFI_AP_STA : WIFI_AP);
+  // Without home WiFi configured: access point only (the station would only disturb it).
+  // With the home WiFi: station only while connecting, the access point is started afterwards by
+  // StartAccessPoint. With the access point up (old configuration restored by the SDK) the phone that
+  // has just saved the settings joins it again during the connection: the station was dropped right
+  // after the association, or DHCP got no address until the access point was restarted ("Not connected!"
+  // and then "WiFi connected again")
+  WiFi.mode(wifiConfigured ? WIFI_STA : WIFI_AP);
   ApplyRadioSettings();
 
   if (wifiConfigured) {

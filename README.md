@@ -353,7 +353,7 @@ The Sonoff reads a small **manifest** file. Which one depends on the **Firmware 
 |---|---|
 | *empty* (default) | `https://github.com/aletiffi/AllInOneSonoff/releases/latest/download/manifest.json`, the latest GitHub release |
 | an `http(s)://` address | that address (Google Drive, a test manifest, a local server...) |
-| `off` | none: automatic updates disabled |
+| `off` | none: updates disabled |
 
 The manifest looks like this:
 
@@ -364,9 +364,9 @@ The manifest looks like this:
 }
 ```
 
-The Sonoff reads the manifest at startup, then every hour, with the button (3 flashes), with the *Check firmware update* button (web page or Home Assistant) or with *Install* on the Home Assistant `update` entity. If `version` is **newer** than the installed one, it downloads the file at `url`, checks the **signature**, installs it and restarts. The result is shown in the web page and in Home Assistant.
+The Sonoff never checks by itself: it reads the manifest only when you ask, with the button (3 flashes), with the *Check firmware update* button (web page or Home Assistant) or with *Install* on the Home Assistant `update` entity. If `version` is **newer** than the installed one, it downloads the file at `url`, checks the **signature**, installs it and restarts. The result is shown in the web page and in Home Assistant.
 
-During the check the Sonoff's own WiFi network (access point) is **turned off** for a few seconds, then it comes back: an HTTPS connection leaves very little memory. So the automatic checks (startup and every hour) are postponed by 5 minutes while a device is connected to the access point. If the memory is too fragmented for HTTPS (e.g. right after using the web page), a check you request restarts the Sonoff and runs right after the start; an automatic check is skipped until the next hour.
+During the check the Sonoff's own WiFi network (access point) is **turned off** for a few seconds, then it comes back: an HTTPS connection leaves very little memory. If the memory is too fragmented for HTTPS (e.g. right after using the web page), the Sonoff restarts and runs the check right after the start.
 
 ### 9.2 Publishing an update with GitHub Releases (recommended)
 

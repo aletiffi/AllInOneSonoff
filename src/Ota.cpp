@@ -39,13 +39,10 @@ static BearSSL::SigningVerifier signVerifier(&signPubKey);
 // RTC user memory, kept across a software restart (words 0-31 are used by eboot for the OTA)
 #define OTA_RTC_OFFSET            64
 #define OTA_RTC_CHECK_MAGIC       0x0A7AC4EC
-// Automatic check postponed while a device is connected to the access point
-#define T_OTA_POSTPONE            T_5MIN
+// No automatic check: only on request (web page, Home Assistant, button)
 static bool otaRequested           = false;
 // The pending request comes from a restart for memory: never restart again for it
 static bool requestAfterRestart    = false;
-static bool firstCheckDone         = false;
-static unsigned long lastOtaCheck  = 0;
 static String otaStatus            = "Never checked";
 static String latestVersion        = "";
 
@@ -281,11 +278,9 @@ static void RestartForCheck() {
 }
 
 void Ota_Check() {
-  bool canRestart = otaRequested && !requestAfterRestart;
+  bool canRestart = !requestAfterRestart;
   otaRequested = false;
   requestAfterRestart = false;
-  firstCheckDone = true;
-  lastOtaCheck = millis();
 
   const char* url = ota_effective_url(OtaUrl.Val.c_str(), OTA_DEFAULT_URL);
   if (url == NULL) {
@@ -318,7 +313,7 @@ void Ota_Check() {
       SetStatus("Not enough memory, restarting to check");
       RestartForCheck();
     }
-    SetStatus("Not enough memory for the check, next attempt in 1 h");
+    SetStatus("Not enough memory for the check, try again later");
     Network_ResumeAccessPoint();
     return;
   }
@@ -378,19 +373,9 @@ void Ota_Loop() {
     }
     return;
   }
-  // On request, at the first connection and then every hour
-  // Nothing to do when disabled, except answering a request with the status
-  if (ota_is_disabled(OtaUrl.Val.c_str()) && !otaRequested) {
-    return;
-  }
-  if (otaRequested || !firstCheckDone || millis() - lastOtaCheck > T_1H) {
-    if (!otaRequested && WiFi.softAPgetStationNum() > 0) {
-      // Automatic check: the access point would be turned off, don't disconnect who is using it
-      Serial.println("OTA: check postponed, a device is connected to the access point");
-      firstCheckDone = true;
-      lastOtaCheck = millis() - T_1H + T_OTA_POSTPONE;
-      return;
-    }
+  // Only on request: an automatic update could install a firmware nobody asked for (e.g. over a
+  // local test build) and turns off the access point while someone may be using it
+  if (otaRequested) {
     Ota_Check();
   }
 }
